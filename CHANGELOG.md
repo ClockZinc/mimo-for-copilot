@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.0](https://github.com/ClockZinc/mimo-for-copilot/compare/v0.3.1...v0.4.0) (2026-05-05)
+
+
+### Features
+
+* MiMo For Copilot — fork from deepseek-v4-for-copilot, add MiMo V2.5 Pro + multi-provider config UI ([f683f20](https://github.com/ClockZinc/mimo-for-copilot/commit/f683f20493ab335f434ea21384041f57c0d427ad))
+
+
+### Bug Fixes
+
+* format code with oxfmt to pass CI ([277c243](https://github.com/ClockZinc/mimo-for-copilot/commit/277c2438f6709ce817b16b45d23e6e93fc33b603))
+* lint errors in CI (unused import, unused variable) ([33206d1](https://github.com/ClockZinc/mimo-for-copilot/commit/33206d115c4c4303fa9883dfc9fe9da10f2d9262))
+* separate thinking capability from thinking param — MiMo keeps reasoning but no effort dropdown ([458e3c3](https://github.com/ClockZinc/mimo-for-copilot/commit/458e3c3a55dcbc3d5026c89f24aed193551e9efb))
+
 ## [0.3.1](https://github.com/Vizards/deepseek-v4-for-copilot/compare/v0.3.0...v0.3.1) (2026-05-02)
 
 

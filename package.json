@@ -3,7 +3,7 @@
   "displayName": "%mimo-copilot.displayName%",
   "description": "%mimo-copilot.description%",
   "icon": "resources/mimo.png",
-  "version": "1.0.0",
+  "version": "0.4.0",
   "publisher": "ClockZinc",
   "license": "MIT",
   "repository": {
@@ -121,18 +121,43 @@
         "mimo-copilot.providers": {
           "type": "array",
           "default": [
-            { "id": "deepseek", "name": "DeepSeek", "baseUrl": "https://api.deepseek.com" },
-            { "id": "mimo", "name": "MiMo (Xiaomi)", "baseUrl": "https://api.xiaomimimo.com/v1" },
-            { "id": "mimo-tp", "name": "MiMo Token Plan", "baseUrl": "https://token-plan-sgp.xiaomimimo.com/v1" }
+            {
+              "id": "deepseek",
+              "name": "DeepSeek",
+              "baseUrl": "https://api.deepseek.com"
+            },
+            {
+              "id": "mimo",
+              "name": "MiMo (Xiaomi)",
+              "baseUrl": "https://api.xiaomimimo.com/v1"
+            },
+            {
+              "id": "mimo-tp",
+              "name": "MiMo Token Plan",
+              "baseUrl": "https://token-plan-sgp.xiaomimimo.com/v1"
+            }
           ],
           "items": {
             "type": "object",
             "properties": {
-              "id": { "type": "string", "description": "Unique provider ID" },
-              "name": { "type": "string", "description": "Display name" },
-              "baseUrl": { "type": "string", "description": "API base URL" }
+              "id": {
+                "type": "string",
+                "description": "Unique provider ID"
+              },
+              "name": {
+                "type": "string",
+                "description": "Display name"
+              },
+              "baseUrl": {
+                "type": "string",
+                "description": "API base URL"
+              }
             },
-            "required": ["id", "name", "baseUrl"]
+            "required": [
+              "id",
+              "name",
+              "baseUrl"
+            ]
           },
           "description": "%mimo-copilot.config.providers.description%"
         },
@@ -142,25 +167,53 @@
           "items": {
             "type": "object",
             "properties": {
-              "id": { "type": "string" },
-              "name": { "type": "string" },
-              "providerId": { "type": "string" },
-              "maxInputTokens": { "type": "number" },
-              "maxOutputTokens": { "type": "number" },
-              "toolCalling": { "type": "boolean" },
-              "vision": { "type": "boolean" },
-              "thinking": { "type": "boolean" },
-              "temperature": { "type": "number" },
-              "topP": { "type": "number" }
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "providerId": {
+                "type": "string"
+              },
+              "maxInputTokens": {
+                "type": "number"
+              },
+              "maxOutputTokens": {
+                "type": "number"
+              },
+              "toolCalling": {
+                "type": "boolean"
+              },
+              "vision": {
+                "type": "boolean"
+              },
+              "thinking": {
+                "type": "boolean"
+              },
+              "temperature": {
+                "type": "number"
+              },
+              "topP": {
+                "type": "number"
+              }
             },
-            "required": ["id", "name", "providerId", "maxInputTokens", "maxOutputTokens"]
+            "required": [
+              "id",
+              "name",
+              "providerId",
+              "maxInputTokens",
+              "maxOutputTokens"
+            ]
           },
           "description": "%mimo-copilot.config.models.description%"
         },
         "mimo-copilot.hiddenModels": {
           "type": "array",
           "default": [],
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "%mimo-copilot.config.hiddenModels.description%"
         },
         "mimo-copilot.maxTokens": {
