@@ -46,6 +46,15 @@ export class AuthManager {
 	}
 
 	/**
+	 * Get ONLY the provider-specific API key (no global fallback).
+	 * Used for cascade resolution: if mimo has no specific key,
+	 * we should cascade to mimo-tp instead of falling back to a wrong global key.
+	 */
+	async getProviderSpecificKey(providerId: string): Promise<string | undefined> {
+		return this.secretStorage.get(`${CONFIG_SECTION}.apiKey.${providerId}`);
+	}
+
+	/**
 	 * Store API key in SecretStorage.
 	 */
 	async setApiKey(apiKey: string): Promise<void> {

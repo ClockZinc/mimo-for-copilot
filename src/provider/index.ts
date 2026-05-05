@@ -154,9 +154,19 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		return this.authManager.hasApiKey();
 	}
 
-	/** Check if a specific provider has an API key. */
+	/** Check if a specific provider has an API key (includes global fallback). */
 	async hasProviderApiKey(providerId: string): Promise<boolean> {
 		const key = await this.authManager.getApiKeyForProvider(providerId);
+		return key !== undefined && key.length > 0;
+	}
+
+	/**
+	 * Check if a provider has its OWN API key (no global fallback).
+	 * Used for cascade resolution: if mimo has no specific key but mimo-tp does,
+	 * cascade to mimo-tp. The global key alone should NOT prevent cascade.
+	 */
+	async hasProviderSpecificKey(providerId: string): Promise<boolean> {
+		const key = await this.authManager.getProviderSpecificKey(providerId);
 		return key !== undefined && key.length > 0;
 	}
 
@@ -198,12 +208,12 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 
 		const hiddenModels = getHiddenModels();
 
-		// Check per-provider keys
+		// Check per-provider keys (specific keys only, no global fallback)
 		const providerKeyStatus = new Map<string, boolean>();
 		const config = vscode.workspace.getConfiguration('mimo-copilot');
 		const providers = config.get<Array<{ id: string }>>('providers') ?? [];
 		for (const p of providers) {
-			providerKeyStatus.set(p.id, await this.hasProviderApiKey(p.id));
+			providerKeyStatus.set(p.id, await this.hasProviderSpecificKey(p.id));
 		}
 
 		// Only the actual global key (mimo-copilot.apiKey) counts as global fallback
@@ -300,11 +310,11 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 
 		// Resolve provider-specific settings (baseUrl + apiKey) with cascade
 		const modelProviderId = modelDef?.providerId ?? userModelDef?.providerId;
-		// Build key status map for cascade resolution
+		// Build key status map for cascade resolution (specific keys only)
 		const keyStatus = new Map<string, boolean>();
 		const allProviders = vscode.workspace.getConfiguration('mimo-copilot').get<Array<{ id: string }>>('providers') ?? [];
 		for (const p of allProviders) {
-			keyStatus.set(p.id, await this.hasProviderApiKey(p.id));
+			keyStatus.set(p.id, await this.hasProviderSpecificKey(p.id));
 		}
 		const { baseUrl, providerId } = resolveProviderForModel(modelProviderId, keyStatus);
 		logger.info(`[Request] model=${modelInfo.id} providerId=${providerId} baseUrl=${baseUrl}`);
