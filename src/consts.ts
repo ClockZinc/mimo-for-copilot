@@ -133,6 +133,25 @@ export const MODELS: ModelDefinition[] = [
 		temperature: 1,
 		topP: 0.95,
 	},
+	{
+		id: 'mimo-v2-pro',
+		name: 'MiMo V2 Pro',
+		family: 'mimo',
+		version: 'v2',
+		detail: 'Agent model for memory recall and background tasks',
+		maxInputTokens: 262144,
+		maxOutputTokens: 16384,
+		capabilities: {
+			toolCalling: false,
+			nativeVision: false,
+			thinking: false,
+		},
+		enhancedVision: false,
+		requiresThinkingParam: false,
+		providerId: 'mimo',
+		temperature: 0,
+		isUserSelectable: false, // 不在 chat picker 中显示，仅在 provider config 中可见
+	},
 ];
 
 /** Default provider definitions. Users can add more via the config view. */

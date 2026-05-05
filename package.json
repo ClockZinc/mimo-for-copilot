@@ -80,6 +80,18 @@
       {
         "command": "mimo-copilot.showLogs",
         "title": "%mimo-copilot.command.showLogs%"
+      },
+      {
+        "command": "mimo-copilot.remember",
+        "title": "%mimo-copilot.command.remember%"
+      },
+      {
+        "command": "mimo-copilot.showMemory",
+        "title": "%mimo-copilot.command.showMemory%"
+      },
+      {
+        "command": "mimo-copilot.forget",
+        "title": "%mimo-copilot.command.forget%"
       }
     ],
     "walkthroughs": [
@@ -169,6 +181,29 @@
           "default": 0,
           "minimum": 0,
           "description": "%mimo-copilot.config.maxTokens.description%"
+        },
+        "mimo-copilot.agenticMemory": {
+          "type": "boolean",
+          "default": false,
+          "description": "%mimo-copilot.config.agenticMemory.description%"
+        },
+        "mimo-copilot.memory.recallModel": {
+          "type": "string",
+          "default": "mimo-v2-pro",
+          "enum": ["mimo-v2-pro", "mimo-v2.5", "mimo-v2.5-pro"],
+          "description": "%mimo-copilot.config.memory.recallModel.description%"
+        },
+        "mimo-copilot.memory.dreamIntervalHours": {
+          "type": "number",
+          "default": 24,
+          "minimum": 1,
+          "description": "%mimo-copilot.config.memory.dreamIntervalHours.description%"
+        },
+        "mimo-copilot.memory.dreamMinSessions": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "description": "%mimo-copilot.config.memory.dreamMinSessions.description%"
         },
         "mimo-copilot.modelIdOverrides": {
           "type": "object",

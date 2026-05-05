@@ -1,10 +1,13 @@
 import vscode from 'vscode';
 import { WALKTHROUGH_ID, WELCOME_SHOWN_KEY, OPEN_CONFIG_COMMAND } from './consts';
+import { getProviders, resolveProviderForModel, getRelatedProviders } from './config';
 import { t } from './i18n';
 import { logger } from './logger';
 import { DeepSeekChatProvider } from './provider';
 import { initStatusBar } from './statusBar';
 import { ConfigViewPanel } from './views/configView';
+import { MemoryManager } from './memory/manager';
+import { registerMemoryCommands } from './memory/commands';
 
 let activeProvider: DeepSeekChatProvider | undefined;
 
@@ -30,6 +33,65 @@ export function activate(context: vscode.ExtensionContext) {
 	try {
 		const provider = new DeepSeekChatProvider(context);
 		activeProvider = provider;
+
+		// 初始化 Agentic Memory（仅在开关开启时）
+		const config = vscode.workspace.getConfiguration('mimo-copilot');
+		const agenticMemoryEnabled = config.get<boolean>('agenticMemory', false);
+		if (agenticMemoryEnabled) {
+			const memoryManager = new MemoryManager(context);
+			const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+			// 异步初始化：复用主 provider 的级联逻辑
+			(async () => {
+				try {
+					const allProviders = getProviders();
+					const keyStatus = new Map<string, boolean>();
+					for (const p of allProviders) {
+						const key = await context.secrets.get(`mimo-copilot.apiKey.${p.id}`);
+						keyStatus.set(p.id, !!key && key.length > 0);
+					}
+					const globalKey = await context.secrets.get('mimo-copilot.apiKey');
+					if (globalKey && globalKey.length > 0) {
+						for (const p of allProviders) {
+							if (!keyStatus.get(p.id)) keyStatus.set(p.id, true);
+						}
+					}
+
+					// resolve agent model 的 provider（自动级联 mimo ↔ mimo-tp）
+					const { baseUrl, providerId } = resolveProviderForModel('mimo', keyStatus);
+					const apiKey = await context.secrets.get(`mimo-copilot.apiKey.${providerId}`)
+						?? await context.secrets.get('mimo-copilot.apiKey');
+
+					if (apiKey) {
+						memoryManager.initialize(workspaceRoot, apiKey, baseUrl);
+						// provider.setMemoryManager(memoryManager); // removed — method does not exist
+						registerMemoryCommands(context, memoryManager);
+						logger.info(`[Extension] Agentic Memory enabled (provider=${providerId}, baseUrl=${baseUrl})`);
+					} else {
+						memoryManager.initialize(workspaceRoot, undefined);
+						logger.info('[Extension] Agentic Memory enabled but no API key — recall will use keyword fallback');
+					}
+				} catch (e) {
+					logger.warn('[Extension] Agentic Memory initialization failed:', e);
+				}
+			})();
+		} else {
+			logger.info('[Extension] Agentic Memory disabled (enable via mimo-copilot.agenticMemory)');
+		}
+
+		// 监听 agenticMemory 开关变更
+		context.subscriptions.push(
+			vscode.workspace.onDidChangeConfiguration(e => {
+				if (e.affectsConfiguration('mimo-copilot.agenticMemory')) {
+					vscode.window.showInformationMessage(
+						t('extension.agenticMemory.changed'),
+						t('extension.agenticMemory.reload'),
+					).then(action => {
+						if (action) vscode.commands.executeCommand('workbench.action.reloadWindow');
+					});
+				}
+			}),
+		);
 
 		context.subscriptions.push(
 			vscode.commands.registerCommand('mimo-copilot.setApiKey', () => provider.configureApiKey()),

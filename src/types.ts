@@ -133,6 +133,8 @@ export interface ModelDefinition {
 	temperature?: number;
 	/** Default top_p (0-1). */
 	topP?: number;
+	/** Whether this model appears in the chat model picker. Defaults to true. */
+	isUserSelectable?: boolean;
 }
 
 /** A configured API provider (DeepSeek, MiMo, or any OpenAI-compatible endpoint). */

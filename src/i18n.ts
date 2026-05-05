@@ -64,6 +64,8 @@ const zh: Translations = {
 
 	// Extension
 	'extension.activateFailed': 'MiMo 激活失败，请运行 "MiMo: 显示日志" 查看详情。',
+	'extension.agenticMemory.changed': 'Agentic Memory 设置已变更，需要重载窗口以生效。',
+	'extension.agenticMemory.reload': '重载窗口',
 	'extension.deactivateFailed': 'MiMo 停用异常',
 	'extension.welcomeFailed': '欢迎引导加载异常',
 };
@@ -117,6 +119,8 @@ const en: Translations = {
 
 	// Extension
 	'extension.activateFailed': 'MiMo failed to activate. Run "MiMo: Show Logs" for details.',
+	'extension.agenticMemory.changed': 'Agentic Memory setting changed. Reload window to apply.',
+	'extension.agenticMemory.reload': 'Reload Window',
 	'extension.deactivateFailed': 'Failed to prepare MiMo provider for deactivate',
 	'extension.welcomeFailed': 'Failed to show MiMo welcome prompt',
 };

@@ -300,15 +300,23 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 
 		// Resolve provider-specific settings (baseUrl + apiKey) with cascade
 		const modelProviderId = modelDef?.providerId ?? userModelDef?.providerId;
-		// Build key status map for cascade resolution
-		const keyStatus = new Map<string, boolean>();
+		// Build key status from providers config AND secretStorage for cascade siblings
+		const providerKeyStatus = new Map<string, boolean>();
 		const allProviders = vscode.workspace.getConfiguration('mimo-copilot').get<Array<{ id: string }>>('providers') ?? [];
 		for (const p of allProviders) {
-			keyStatus.set(p.id, await this.hasProviderApiKey(p.id));
+			providerKeyStatus.set(p.id, await this.hasProviderApiKey(p.id));
 		}
-		const { baseUrl, providerId } = resolveProviderForModel(modelProviderId, keyStatus);
-		logger.info(`[Request] model=${modelInfo.id} providerId=${providerId} baseUrl=${baseUrl}`);
+		// Also check cascade siblings that might not be in providers config
+		for (const fam of ['mimo', 'mimo-tp']) {
+			if (!providerKeyStatus.has(fam)) {
+				providerKeyStatus.set(fam, await this.hasProviderApiKey(fam));
+			}
+		}
+		logger.debug(`[Request] providerKeyStatus: ${JSON.stringify(Object.fromEntries(providerKeyStatus))}`);
+		const { baseUrl, providerId } = resolveProviderForModel(modelProviderId, providerKeyStatus);
+		logger.debug(`[Request] model=${modelInfo.id} inputProvider=${modelProviderId ?? '(none)'} → resolved provider=${providerId} baseUrl=${baseUrl}`);
 		const apiKey = await this.authManager.getApiKeyForProvider(providerId);
+		logger.debug(`[Request] apiKey found for provider=${providerId}: ${apiKey ? 'YES' : 'NO'}`);
 		if (!apiKey) {
 			throw new Error(t('auth.notConfigured') + ` (provider: ${providerId})`);
 		}
