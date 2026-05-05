@@ -4,7 +4,7 @@
   "description": "%mimo-copilot.description%",
   "icon": "resources/mimo.png",
   "version": "1.0.0",
-  "publisher": "ClockZinc",
+  "publisher": "clockzincbit",
   "license": "MIT",
   "repository": {
     "type": "git",

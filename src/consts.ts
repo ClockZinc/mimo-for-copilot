@@ -24,7 +24,7 @@ export const WELCOME_SHOWN_KEY = 'mimo-copilot.welcomeShown';
 // ---- Walkthrough ----
 
 /** Walkthrough contribution ID. */
-export const WALKTHROUGH_ID = 'ClockZinc.mimo-for-copilot#mimoGettingStarted';
+export const WALKTHROUGH_ID = 'clockzincbit.mimo-for-copilot#mimoGettingStarted';
 
 // ---- Vision proxy ----
 
