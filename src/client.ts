@@ -39,15 +39,41 @@ export class DeepSeekClient {
 				stream_options: { include_usage: true },
 			};
 
-			const response = await fetch(`${this.baseUrl}/chat/completions`, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					Authorization: `Bearer ${this.apiKey}`,
-				},
-				body: JSON.stringify(requestBody),
-				signal: controller.signal,
-			});
+			const url = `${this.baseUrl}/chat/completions`;
+
+			let response: Response;
+			let lastError: unknown;
+			// Retry up to 2 times on fetch-level errors with 1s delay
+			for (let attempt = 0; attempt < 2; attempt++) {
+				try {
+					response = await fetch(url, {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							Authorization: `Bearer ${this.apiKey}`,
+						},
+						body: JSON.stringify(requestBody),
+						signal: controller.signal,
+					});
+					break;
+				} catch (err) {
+					lastError = err;
+					if (attempt === 0) {
+						logger.warn(`[Client] fetch attempt ${attempt + 1} failed for ${url}, retrying...`);
+						await new Promise(resolve => setTimeout(resolve, 1000));
+					}
+				}
+			}
+
+			if (!response!) {
+				const err = lastError instanceof Error ? lastError : new Error(String(lastError));
+				logger.error(`[Client] All fetch attempts failed for ${url}: ${err.message}`);
+				throw new Error(
+					`Failed to connect to ${this.baseUrl}. ` +
+					`Check your network connection and that the endpoint is reachable. ` +
+					`Error: ${err.message}`,
+				);
+			}
 
 			if (!response.ok) {
 				const errorText = await response.text();
