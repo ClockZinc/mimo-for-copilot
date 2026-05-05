@@ -1,0 +1,69 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "npm",
+      "script": "watch",
+      "problemMatcher": "$tsc-watch",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "silent"
+      },
+      "group": "build"
+    },
+    {
+      "label": "Launch Extension Host (Insiders CLI)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/.vscode/launch-extension-host.sh",
+        "insiders",
+        "9333",
+        "${workspaceFolder}"
+      ],
+      "windows": {
+        "command": "powershell",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "${workspaceFolder}/.vscode/launch-extension-host.ps1",
+          "insiders",
+          "9333",
+          "${workspaceFolder}"
+        ]
+      },
+      "dependsOn": "npm: watch",
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "Launch Extension Host (Stable CLI)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/.vscode/launch-extension-host.sh",
+        "stable",
+        "9334",
+        "${workspaceFolder}"
+      ],
+      "windows": {
+        "command": "powershell",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "${workspaceFolder}/.vscode/launch-extension-host.ps1",
+          "stable",
+          "9334",
+          "${workspaceFolder}"
+        ]
+      },
+      "dependsOn": "npm: watch",
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    }
+  ]
+}

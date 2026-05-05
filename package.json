@@ -1,0 +1,229 @@
+{
+  "name": "mimo-for-copilot",
+  "displayName": "%mimo-copilot.displayName%",
+  "description": "%mimo-copilot.description%",
+  "icon": "resources/mimo.png",
+  "version": "0.3.1",
+  "publisher": "ClockZinc",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ClockZinc/mimo-for-copilot"
+  },
+  "engines": {
+    "vscode": "^1.116.0",
+    "node": ">=24"
+  },
+  "extensionDependencies": [
+    "github.copilot-chat"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "categories": [
+    "AI",
+    "Chat",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "deepseek",
+    "deepseek v4",
+    "deepseek-v4",
+    "copilot",
+    "github copilot",
+    "copilot chat",
+    "vision",
+    "byok",
+    "language model",
+    "thinking",
+    "reasoning",
+    "ai",
+    "chat"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "enabledApiProposals": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languageModelChatProviders": [
+      {
+        "vendor": "mimo",
+        "displayName": "%mimo-copilot.providerDisplayName%"
+      }
+    ],
+    "commands": [
+      {
+        "command": "mimo-copilot.setApiKey",
+        "title": "%mimo-copilot.command.setApiKey%"
+      },
+      {
+        "command": "mimo-copilot.getApiKey",
+        "title": "%mimo-copilot.command.getApiKey%"
+      },
+      {
+        "command": "mimo-copilot.clearApiKey",
+        "title": "%mimo-copilot.command.clearApiKey%"
+      },
+      {
+        "command": "mimo-copilot.setVisionModel",
+        "title": "%mimo-copilot.command.setVisionModel%"
+      },
+      {
+        "command": "mimo-copilot.openSettings",
+        "title": "%mimo-copilot.command.openSettings%"
+      },
+      {
+        "command": "mimo-copilot.openConfigView",
+        "title": "%mimo-copilot.command.openConfigView%"
+      },
+      {
+        "command": "mimo-copilot.showLogs",
+        "title": "%mimo-copilot.command.showLogs%"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "mimoGettingStarted",
+        "title": "%mimo-copilot.walkthrough.title%",
+        "description": "%mimo-copilot.walkthrough.description%",
+        "steps": [
+          {
+            "id": "setApiKey",
+            "title": "%mimo-copilot.walkthrough.setApiKey.title%",
+            "description": "%mimo-copilot.walkthrough.setApiKey.description%",
+            "media": {
+              "markdown": "resources/walkthrough/set-api-key.md"
+            },
+            "completionEvents": [
+              "onCommand:mimo-copilot.setApiKey"
+            ]
+          },
+          {
+            "id": "showModels",
+            "title": "%mimo-copilot.walkthrough.showModels.title%",
+            "description": "%mimo-copilot.walkthrough.showModels.description%",
+            "media": {
+              "markdown": "resources/walkthrough/show-models.md"
+            }
+          }
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "%mimo-copilot.config.title%",
+      "properties": {
+        "mimo-copilot.baseUrl": {
+          "type": "string",
+          "default": "https://api.deepseek.com",
+          "description": "%mimo-copilot.config.baseUrl.description%"
+        },
+        "mimo-copilot.providers": {
+          "type": "array",
+          "default": [
+            { "id": "deepseek", "name": "DeepSeek", "baseUrl": "https://api.deepseek.com" },
+            { "id": "mimo", "name": "MiMo (Xiaomi)", "baseUrl": "https://api.deepseek.com" }
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "description": "Unique provider ID" },
+              "name": { "type": "string", "description": "Display name" },
+              "baseUrl": { "type": "string", "description": "API base URL" }
+            },
+            "required": ["id", "name", "baseUrl"]
+          },
+          "description": "%mimo-copilot.config.providers.description%"
+        },
+        "mimo-copilot.models": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "providerId": { "type": "string" },
+              "maxInputTokens": { "type": "number" },
+              "maxOutputTokens": { "type": "number" },
+              "toolCalling": { "type": "boolean" },
+              "vision": { "type": "boolean" },
+              "thinking": { "type": "boolean" },
+              "temperature": { "type": "number" },
+              "topP": { "type": "number" }
+            },
+            "required": ["id", "name", "providerId", "maxInputTokens", "maxOutputTokens"]
+          },
+          "description": "%mimo-copilot.config.models.description%"
+        },
+        "mimo-copilot.hiddenModels": {
+          "type": "array",
+          "default": [],
+          "items": { "type": "string" },
+          "description": "%mimo-copilot.config.hiddenModels.description%"
+        },
+        "mimo-copilot.maxTokens": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "%mimo-copilot.config.maxTokens.description%"
+        },
+        "mimo-copilot.modelIdOverrides": {
+          "type": "object",
+          "default": {
+            "deepseek-v4-flash": "deepseek-v4-flash",
+            "deepseek-v4-pro": "deepseek-v4-pro",
+            "mimo-v2.5-pro": "mimo-v2.5-pro"
+          },
+          "description": "%mimo-copilot.config.modelIdOverrides.description%",
+          "additionalProperties": false,
+          "properties": {
+            "deepseek-v4-flash": {
+              "type": "string",
+              "description": "%mimo-copilot.config.modelIdOverrides.deepseek-v4-flash.description%"
+            },
+            "deepseek-v4-pro": {
+              "type": "string",
+              "description": "%mimo-copilot.config.modelIdOverrides.deepseek-v4-pro.description%"
+            },
+            "mimo-v2.5-pro": {
+              "type": "string",
+              "description": "%mimo-copilot.config.modelIdOverrides.mimo-v2.5-pro.description%"
+            }
+          }
+        },
+        "mimo-copilot.visionModel": {
+          "type": "string",
+          "default": "",
+          "description": "%mimo-copilot.config.visionModel.description%"
+        },
+        "mimo-copilot.visionPrompt": {
+          "type": "string",
+          "editPresentation": "multilineText",
+          "default": "Describe the visual contents of this image in detail, including any text, objects, people, or context that would be relevant for understanding it. Focus on factual visual elements.",
+          "description": "%mimo-copilot.config.visionPrompt.description%"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('out', { recursive: true, force: true, maxRetries: process.platform === 'win32' ? 10 : 0 })\"",
+    "vscode:prepublish": "npm run clean && npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "oxlint",
+    "format": "oxfmt --write src/",
+    "format:check": "oxfmt --check src/",
+    "package": "vsce package -o dist/",
+    "publish": "vsce publish",
+    "login": "vsce login Vizards"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@types/vscode": "^1.116.0",
+    "@vscode/vsce": "^3.9.1",
+    "oxfmt": "^0.47.0",
+    "oxlint": "^1.62.0",
+    "typescript": "^6.0.3"
+  }
+}
