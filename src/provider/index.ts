@@ -30,7 +30,7 @@ import { createVisionModelGetter, resolveImageMessages, setVisionProxyModel } fr
  * types and drop the casts below.
  */
 
-type ThinkingEffort = 'none' | 'high' | 'max';
+type ThinkingEffort = 'none' | 'high' | 'max' | 'on' | 'off';
 
 /**
  * Non-public: Copilot Chat passes the user's per-model picker selections
@@ -264,8 +264,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 	): Promise<void> {
 		const modelDef = MODELS.find((m) => m.id === modelInfo.id);
 		const userModelDef = !modelDef ? getUserModels().find((m) => m.id === modelInfo.id) : undefined;
-		const isThinkingModel = modelDef?.capabilities.thinking ?? userModelDef?.thinking ?? false;
-		const needsThinkingParam = modelDef?.requiresThinkingParam ?? userModelDef?.requiresThinkingParam ?? true;
+		const isThinkingModel = modelDef?.capabilities.thinking ?? userModelDef?.thinking ?? false;	const isMiMo = modelDef?.thinkingParamStyle === 'mimo';		const needsThinkingParam = modelDef?.requiresThinkingParam ?? userModelDef?.requiresThinkingParam ?? true;
 		const thinkingEffort = getConfiguredThinkingEffort(options as ModelConfigurationOptions);
 		const maxTokens = getMaxTokens();
 
@@ -316,12 +315,11 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 					...(userTemp !== undefined ? { temperature: userTemp } : {}),
 					...(userTopP !== undefined ? { top_p: userTopP } : {}),
 					...(isThinkingModel && needsThinkingParam
-						? {
-								thinking: {
-									type: thinkingEffort === 'none' ? ('disabled' as const) : ('enabled' as const),
-								},
-								...(thinkingEffort === 'none' ? {} : { reasoning_effort: thinkingEffort }),
-							}
+					? (isMiMo
+						? { reasoning: thinkingEffort !== 'none' }
+						: { thinking: { type: thinkingEffort === 'none' ? 'disabled' as const : 'enabled' as const },
+							...(thinkingEffort !== 'none' ? { reasoning_effort: thinkingEffort as 'high' | 'max' } : {}) }
+					) as Record<string, unknown>
 						: {}),
 				},
 				{
@@ -477,6 +475,7 @@ function resolveDetailKey(m: ModelDefinition): string | undefined {
 function toChatInfo(m: ModelDefinition, hasApiKey: boolean): ModelPickerChatInformation {
 	const detailKey = resolveDetailKey(m);
 	const modelDetail = detailKey ? t(detailKey) : m.detail;
+	const isMiMo = m.thinkingParamStyle === 'mimo';
 	return {
 		id: m.id,
 		name: m.name,
@@ -492,21 +491,39 @@ function toChatInfo(m: ModelDefinition, hasApiKey: boolean): ModelPickerChatInfo
 			toolCalling: m.capabilities.toolCalling,
 			imageInput: m.capabilities.imageInput,
 		},
-		...(m.capabilities.thinking && m.requiresThinkingParam ? { configurationSchema: buildThinkingEffortSchema() } : {}),
+		...(m.capabilities.thinking && m.requiresThinkingParam
+			? { configurationSchema: (isMiMo ? buildMiMoReasoningSchema() : buildThinkingEffortSchema()) as ThinkingEffortConfigurationSchema }
+			: {}),
 	};
+}
+
+/** Build MiMo on/off reasoning schema (no effort levels, just boolean). */
+function buildMiMoReasoningSchema() {
+	return {
+		properties: {
+			reasoningEffort: {
+				type: 'string',
+				title: 'Reasoning',
+				enum: ['on', 'off'],
+				enumItemLabels: [t('thinking.on'), t('thinking.off')],
+				enumDescriptions: [t('thinking.on.desc'), t('thinking.off.desc')],
+				default: 'on',
+				group: 'navigation',
+			},
+		},
+	} as const;
 }
 
 function getConfiguredThinkingEffort(options: ModelConfigurationOptions): ThinkingEffort {
 	const configuredEffort =
 		options.modelConfiguration?.reasoningEffort ?? options.configuration?.reasoningEffort;
 
-	if (configuredEffort === 'none') {
-		return 'none';
-	}
+	// MiMo on/off
+	if (configuredEffort === 'on') { return 'on'; }
+	if (configuredEffort === 'off') { return 'none'; }
 
-	if (configuredEffort === 'high') {
-		return 'high';
-	}
+	if (configuredEffort === 'none') { return 'none'; }
+	if (configuredEffort === 'high') { return 'high'; }
 
 	return configuredEffort === 'max' ? 'max' : 'high';
 }
