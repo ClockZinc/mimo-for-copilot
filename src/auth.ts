@@ -158,6 +158,7 @@ const MIMO_PROVIDER_FAMILY = ['mimo', 'mimo-tp'];
 /**
  * When user sets API key for a MiMo-family provider (mimo or mimo-tp),
  * automatically update all built-in MiMo models' providerId to that provider.
+ * Creates model overrides if they don't exist yet.
  */
 export async function updateMiMoModelProviders(providerId: string): Promise<void> {
 	if (!MIMO_PROVIDER_FAMILY.includes(providerId)) { return; }
@@ -169,6 +170,13 @@ export async function updateMiMoModelProviders(providerId: string): Promise<void
 	for (const m of models) {
 		if (BUILTIN_MIMO_MODELS.includes(m.id) && m.providerId !== providerId) {
 			m.providerId = providerId;
+			changed = true;
+		}
+	}
+	// Create overrides for MiMo models that don't exist in user config yet
+	for (const modelId of BUILTIN_MIMO_MODELS) {
+		if (!models.some((m) => m.id === modelId)) {
+			models.push({ id: modelId, providerId });
 			changed = true;
 		}
 	}

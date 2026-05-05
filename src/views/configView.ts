@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import type { ProviderDefinition, UserModelConfig } from '../types';
 import { CONFIG_SECTION, MODELS } from '../consts';
-import { getProviders } from '../config';
+import { getProviders, getRelatedProviders } from '../config';
 import { updateMiMoModelProviders } from '../auth';
 
 // ---- Types ----
@@ -144,11 +144,31 @@ export class ConfigViewPanel {
 	private async sendInit() {
 		const providers = getProviders();
 		const providerKeys: Record<string, string> = {};
-		for (const p of providers) {
-			const key = await this.secrets.get(`${CONFIG_SECTION}.apiKey.${p.id}`);
-			if (key) {
-				providerKeys[p.id] = '••••••••••••••••••••';
+		// Also check sibling provider keys (e.g. mimo-tp) even if not in providers config
+		const providerIdsToCheck = new Set<string>(providers.map((p) => p.id));
+		for (const model of MODELS) {
+			if (model.providerId) {
+				providerIdsToCheck.add(model.providerId);
+				for (const sibling of getRelatedProviders(model.providerId)) {
+					providerIdsToCheck.add(sibling);
+				}
 			}
+		}
+		for (const id of providerIdsToCheck) {
+			const key = await this.secrets.get(`${CONFIG_SECTION}.apiKey.${id}`);
+			if (key) {
+				providerKeys[id] = '••••••••••••••••••••';
+			}
+		}
+
+		/** Resolve effective provider with cascade (mimo ↔ mimo-tp). */
+		function getEffectiveProviderId(modelProviderId: string | undefined): string {
+			if (!modelProviderId || modelProviderId === 'default') { return 'deepseek'; }
+			if (providerKeys[modelProviderId]) { return modelProviderId; }
+			for (const sibling of getRelatedProviders(modelProviderId)) {
+				if (providerKeys[sibling]) { return sibling; }
+			}
+			return modelProviderId;
 		}
 
 		const hiddenModels = this.getHiddenModels();
@@ -162,7 +182,7 @@ export class ConfigViewPanel {
 			allModels.push({
 				id: m.id,
 				name: override?.name || m.name,
-				providerId: override?.providerId || m.providerId || 'deepseek',
+				providerId: override?.providerId || getEffectiveProviderId(m.providerId),
 				maxInputTokens: override?.maxInputTokens || m.maxInputTokens,
 				maxOutputTokens: override?.maxOutputTokens || m.maxOutputTokens,
 				toolCalling: override?.toolCalling ?? m.capabilities.toolCalling,
