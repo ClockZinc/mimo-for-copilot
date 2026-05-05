@@ -246,7 +246,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 					isUserSelectable: true,
 					capabilities: {
 						toolCalling: m.toolCalling,
-						imageInput: m.vision,
+						imageInput: m.nativeVision,
 					},
 					...(m.thinking && m.requiresThinkingParam ? { configurationSchema: buildThinkingEffortSchema() } : {}),
 				};
@@ -264,9 +264,15 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 	): Promise<void> {
 		const modelDef = MODELS.find((m) => m.id === modelInfo.id);
 		const userModelDef = !modelDef ? getUserModels().find((m) => m.id === modelInfo.id) : undefined;
-		const isThinkingModel = modelDef?.capabilities.thinking ?? userModelDef?.thinking ?? false;	const isMiMo = modelDef?.thinkingParamStyle === 'mimo';		const needsThinkingParam = modelDef?.requiresThinkingParam ?? userModelDef?.requiresThinkingParam ?? true;
+		const isThinkingModel = modelDef?.capabilities.thinking ?? userModelDef?.thinking ?? false;
+		const isMiMo = modelDef?.thinkingParamStyle === 'mimo';
+		const needsThinkingParam = modelDef?.requiresThinkingParam ?? userModelDef?.requiresThinkingParam ?? true;
 		const thinkingEffort = getConfiguredThinkingEffort(options as ModelConfigurationOptions);
 		const maxTokens = getMaxTokens();
+
+		// Vision: native vision skips proxy, enhancedVision uses Copilot proxy
+		const nativeVision = modelDef?.capabilities.nativeVision ?? userModelDef?.nativeVision ?? false;
+		const enhancedVision = modelDef?.enhancedVision ?? userModelDef?.enhancedVision ?? true;
 
 		// Resolve provider-specific settings (baseUrl + apiKey)
 		const modelProviderId = modelDef?.providerId ?? userModelDef?.providerId;
@@ -283,8 +289,10 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			pruneReasoningCache(this.reasoningCache, true);
 		}
 
-		// Vision proxy: resolve images → text descriptions before sending to DeepSeek
-		const resolvedMessages = await resolveImageMessages(messages, token, () => this.vision.get());
+		// Vision: if native vision → keep images as-is; else use Copilot proxy
+		const resolvedMessages = nativeVision
+			? messages
+			: await resolveImageMessages(messages, token, () => this.vision.get());
 		const deepseekMessages = convertMessages(
 			resolvedMessages,
 			isThinkingModel,
@@ -489,7 +497,7 @@ function toChatInfo(m: ModelDefinition, hasApiKey: boolean): ModelPickerChatInfo
 		isUserSelectable: true,
 		capabilities: {
 			toolCalling: m.capabilities.toolCalling,
-			imageInput: m.capabilities.imageInput,
+			imageInput: m.capabilities.nativeVision,
 		},
 		...(m.capabilities.thinking && m.requiresThinkingParam
 			? { configurationSchema: (isMiMo ? buildMiMoReasoningSchema() : buildThinkingEffortSchema()) as ThinkingEffortConfigurationSchema }

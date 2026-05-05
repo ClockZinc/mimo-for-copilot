@@ -165,7 +165,8 @@ export class ConfigViewPanel {
 				maxInputTokens: override?.maxInputTokens || m.maxInputTokens,
 				maxOutputTokens: override?.maxOutputTokens || m.maxOutputTokens,
 				toolCalling: override?.toolCalling ?? m.capabilities.toolCalling,
-				vision: override?.vision ?? m.capabilities.imageInput,
+				nativeVision: override?.nativeVision ?? m.capabilities.nativeVision,
+				enhancedVision: override?.enhancedVision ?? m.enhancedVision,
 				thinking: override?.thinking ?? m.capabilities.thinking,
 				temperature: override?.temperature ?? m.temperature,
 				topP: override?.topP ?? m.topP,
@@ -376,7 +377,8 @@ export class ConfigViewPanel {
 <div class="field"><label for="mf-temperature">Temperature (0-2)</label><input id="mf-temperature" type="number" min="0" max="2" step="0.1" placeholder="(default)"/></div>
 <div class="field"><label for="mf-topP">Top P (0-1)</label><input id="mf-topP" type="number" min="0" max="1" step="0.05" placeholder="(default)"/></div>
 <div class="field"><label for="mf-toolCalling">Tool Calling</label><select id="mf-toolCalling"><option value="true">Yes</option><option value="false">No</option></select></div>
-<div class="field"><label for="mf-vision">Vision</label><select id="mf-vision"><option value="false">No</option><option value="true">Yes</option></select></div>
+<div class="field"><label for="mf-nativeVision">Native Vision</label><select id="mf-nativeVision"><option value="false">No</option><option value="true">Yes</option></select><div class="hint">Model natively supports image input</div></div>
+<div class="field"><label for="mf-enhancedVision">Enhanced Vision</label><select id="mf-enhancedVision"><option value="true">Yes</option><option value="false">No</option></select><div class="hint">Use Copilot proxy for image descriptions</div></div>
 <div class="field"><label for="mf-thinking">Thinking</label><select id="mf-thinking"><option value="true">Yes</option><option value="false">No</option></select></div>
 </div>
 <div class="form-actions"><button id="mf-save" class="btn primary">Save</button><button id="mf-cancel" class="btn secondary">Cancel</button></div>

@@ -6,10 +6,16 @@
 
 export interface DeepSeekMessage {
 	role: 'system' | 'user' | 'assistant' | 'tool';
-	content: string;
+	content: string | DeepSeekContentPart[];
 	tool_call_id?: string;
 	tool_calls?: DeepSeekToolCall[];
 	reasoning_content?: string;
+}
+
+export interface DeepSeekContentPart {
+	type: 'text' | 'image_url';
+	text?: string;
+	image_url?: { url: string; detail?: 'auto' | 'low' | 'high' };
 }
 
 export interface DeepSeekToolCall {
@@ -107,9 +113,12 @@ export interface ModelDefinition {
 	maxOutputTokens: number;
 	capabilities: {
 		toolCalling: boolean;
-		imageInput: boolean;
+		/** Model natively supports image input (base64 images in request). */
+		nativeVision: boolean;
 		thinking: boolean;
 	};
+	/** Use Copilot's vision proxy for image descriptions (default true). */
+	enhancedVision: boolean;
 	requiresThinkingParam: boolean;
 	/**
 	 * Thinking parameter style:
@@ -150,8 +159,10 @@ export interface UserModelConfig {
 	maxOutputTokens: number;
 	/** Supports tool calling. */
 	toolCalling: boolean;
-	/** Supports image input. */
-	vision: boolean;
+	/** Supports image input natively (base64 images). */
+	nativeVision: boolean;
+	/** Use Copilot's vision proxy for image descriptions. */
+	enhancedVision: boolean;
 	/** Supports thinking/reasoning. */
 	thinking: boolean;
 	/** Requires explicit thinking parameter in request. */

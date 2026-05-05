@@ -148,7 +148,8 @@
               "maxInputTokens": { "type": "number" },
               "maxOutputTokens": { "type": "number" },
               "toolCalling": { "type": "boolean" },
-              "vision": { "type": "boolean" },
+              "nativeVision": { "type": "boolean" },
+              "enhancedVision": { "type": "boolean" },
               "thinking": { "type": "boolean" },
               "temperature": { "type": "number" },
               "topP": { "type": "number" }

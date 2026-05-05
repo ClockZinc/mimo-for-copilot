@@ -1,5 +1,5 @@
 import vscode from 'vscode';
-import type { DeepSeekMessage, DeepSeekTool, DeepSeekToolCall } from '../types';
+import type { DeepSeekMessage, DeepSeekContentPart, DeepSeekTool, DeepSeekToolCall } from '../types';
 import type { ReasoningEntry } from './cache';
 
 /**
@@ -18,12 +18,15 @@ export function convertMessages(
 		const role = mapRole(message.role);
 
 		let content = '';
+		const imageParts: vscode.LanguageModelDataPart[] = [];
 		const toolCalls: DeepSeekToolCall[] = [];
 		const toolResults: Array<{ callId: string; content: string }> = [];
 
 		for (const part of message.content) {
 			if (part instanceof vscode.LanguageModelTextPart) {
 				content += part.value;
+			} else if (part instanceof vscode.LanguageModelDataPart) {
+				imageParts.push(part);
 			} else if (part instanceof vscode.LanguageModelToolCallPart) {
 				toolCalls.push({
 					id: part.callId,
@@ -77,11 +80,27 @@ export function convertMessages(
 
 				result.push(msg);
 			}
-		} else if (content) {
-			result.push({
-				role: role as 'user' | 'assistant',
-				content: content,
-			});
+		} else if (content || imageParts.length > 0) {
+			if (imageParts.length > 0) {
+				// Multi-modal message with images → use content array format
+				const contentArray: DeepSeekContentPart[] = [];
+				if (content) {
+					contentArray.push({ type: 'text', text: content });
+				}
+				for (const img of imageParts) {
+					const dataUrl = `data:${img.mimeType};base64,${Buffer.from(img.data).toString('base64')}`;
+					contentArray.push({ type: 'image_url', image_url: { url: dataUrl } });
+				}
+				result.push({
+					role: role as 'user',
+					content: contentArray,
+				});
+			} else {
+				result.push({
+					role: role as 'user' | 'assistant',
+					content: content,
+				});
+			}
 		}
 
 		// Tool result messages follow their associated assistant message

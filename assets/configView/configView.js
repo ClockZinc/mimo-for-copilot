@@ -94,7 +94,8 @@
 			if (m.builtin) badges.push('⭐ Built-in');
 			if (m.hidden) badges.push('🚫 Hidden');
 			if (m.toolCalling) badges.push('🔧 Tools');
-			if (m.vision) badges.push('👁 Vision');
+			if (m.nativeVision) badges.push('👁 Native Vision');
+			if (m.enhancedVision) badges.push('🔍 Enhanced Vision');
 			if (m.thinking) badges.push('🧠 Thinking');
 			var actions = '';
 			if (m.hidden) {
@@ -257,7 +258,8 @@
 			document.getElementById('mf-temperature').value = m && m.temperature !== undefined ? m.temperature : '';
 			document.getElementById('mf-topP').value = m && m.topP !== undefined ? m.topP : '';
 			document.getElementById('mf-toolCalling').value = m ? String(!!m.toolCalling) : 'true';
-			document.getElementById('mf-vision').value = m ? String(!!m.vision) : 'false';
+			document.getElementById('mf-nativeVision').value = m ? String(!!m.nativeVision) : 'false';
+			document.getElementById('mf-enhancedVision').value = m ? String(!!m.enhancedVision) : 'true';
 			document.getElementById('mf-thinking').value = m ? String(!!m.thinking) : 'true';
 		} else {
 			document.getElementById('mfTitle').textContent = 'Add Model';
@@ -270,7 +272,8 @@
 			document.getElementById('mf-temperature').value = '';
 			document.getElementById('mf-topP').value = '';
 			document.getElementById('mf-toolCalling').value = 'true';
-			document.getElementById('mf-vision').value = 'false';
+			document.getElementById('mf-nativeVision').value = 'false';
+			document.getElementById('mf-enhancedVision').value = 'true';
 			document.getElementById('mf-thinking').value = 'true';
 		}
 	}
@@ -295,7 +298,8 @@
 			maxInputTokens: maxIn,
 			maxOutputTokens: maxOut,
 			toolCalling: document.getElementById('mf-toolCalling').value === 'true',
-			vision: document.getElementById('mf-vision').value === 'true',
+			nativeVision: document.getElementById('mf-nativeVision').value === 'true',
+			enhancedVision: document.getElementById('mf-enhancedVision').value === 'true',
 			thinking: document.getElementById('mf-thinking').value === 'true',
 		};
 		if (!isNaN(temp) && temp >= 0) model.temperature = temp;
@@ -342,7 +346,8 @@
 				maxInputTokens: m.maxInputTokens,
 				maxOutputTokens: m.maxOutputTokens,
 				toolCalling: m.toolCalling,
-				vision: m.vision,
+				nativeVision: m.nativeVision,
+				enhancedVision: m.enhancedVision,
 				thinking: m.thinking,
 				temperature: m.temperature,
 				topP: m.topP,
