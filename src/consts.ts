@@ -99,7 +99,7 @@ export const MODELS: ModelDefinition[] = [
 			imageInput: false,
 			thinking: true,
 		},
-		requiresThinkingParam: true,
+		requiresThinkingParam: false,
 		providerId: 'mimo',
 		temperature: 1,
 		topP: 0.95,

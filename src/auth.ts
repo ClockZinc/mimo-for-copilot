@@ -92,10 +92,11 @@ export class AuthManager {
 	 */
 	async promptForApiKey(): Promise<boolean> {
 		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-		const providers: Array<{ id: string; name: string }> = config.get<Array<{ id: string; name: string }>>('providers') ?? [];
+		const providers: Array<{ id: string; name: string }> =
+			config.get<Array<{ id: string; name: string }>>('providers') ?? [];
 
 		// Build provider choices
-		const items: vscode.QuickPickItem[] = providers.map(p => ({
+		const items: vscode.QuickPickItem[] = providers.map((p) => ({
 			label: p.name,
 			description: p.id,
 		}));
@@ -114,9 +115,7 @@ export class AuthManager {
 		const providerId = chosen.description === 'Global API Key' ? undefined : chosen.description;
 
 		const apiKey = await vscode.window.showInputBox({
-			prompt: providerId
-				? t('auth.promptForProvider', chosen.label)
-				: t('auth.prompt'),
+			prompt: providerId ? t('auth.promptForProvider', chosen.label) : t('auth.prompt'),
 			placeHolder: t('auth.placeholder'),
 			password: true,
 			ignoreFocusOut: true,

@@ -77,8 +77,7 @@ const en: Translations = {
 	'auth.prefixValidation': 'API key should start with "sk-"',
 	'auth.saved': 'API key saved.',
 	'auth.removed': 'API key removed.',
-	'auth.notConfigured':
-		'API key not configured. Run "MiMo: Set API Key" from the Command Palette.',
+	'auth.notConfigured': 'API key not configured. Run "MiMo: Set API Key" from the Command Palette.',
 	'auth.chooseProviderTitle': 'Choose Provider',
 	'auth.chooseProvider': 'Select which provider to configure an API key for',
 	'auth.promptForProvider': 'Enter your {0} API key',

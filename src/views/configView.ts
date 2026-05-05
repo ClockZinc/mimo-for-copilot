@@ -38,7 +38,9 @@ export class ConfigViewPanel {
 	private disposables: vscode.Disposable[] = [];
 
 	public static openPanel(extensionUri: vscode.Uri, secrets: vscode.SecretStorage) {
-		const column = vscode.window.activeTextEditor ? vscode.window.activeTextEditor.viewColumn : undefined;
+		const column = vscode.window.activeTextEditor
+			? vscode.window.activeTextEditor.viewColumn
+			: undefined;
 		if (ConfigViewPanel.currentPanel) {
 			ConfigViewPanel.currentPanel.panel.reveal(column);
 			return;
@@ -56,7 +58,11 @@ export class ConfigViewPanel {
 		ConfigViewPanel.currentPanel = new ConfigViewPanel(panel, extensionUri, secrets);
 	}
 
-	private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, secrets: vscode.SecretStorage) {
+	private constructor(
+		panel: vscode.WebviewPanel,
+		extensionUri: vscode.Uri,
+		secrets: vscode.SecretStorage,
+	) {
 		this.panel = panel;
 		this.extensionUri = extensionUri;
 		this.secrets = secrets;
@@ -93,21 +99,39 @@ export class ConfigViewPanel {
 
 	async handleMessage(message: IncomingMessage) {
 		switch (message.type) {
-			case 'requestInit': await this.sendInit(); break;
+			case 'requestInit':
+				await this.sendInit();
+				break;
 			case 'addProvider':
 			case 'updateProvider':
-				await this.saveProvider(message.provider, message.apiKey); break;
-			case 'deleteProvider': await this.deleteProvider(message.providerId); break;
-			case 'addModel': await this.addModel(message.model); break;
-			case 'updateModel': await this.updateModel(message.model, message.originalId); break;
-			case 'deleteModel': await this.deleteModel(message.modelId); break;
-			case 'fetchModels': await this.fetchModels(message.providerId, message.baseUrl, message.apiKey); break;
+				await this.saveProvider(message.provider, message.apiKey);
+				break;
+			case 'deleteProvider':
+				await this.deleteProvider(message.providerId);
+				break;
+			case 'addModel':
+				await this.addModel(message.model);
+				break;
+			case 'updateModel':
+				await this.updateModel(message.model, message.originalId);
+				break;
+			case 'deleteModel':
+				await this.deleteModel(message.modelId);
+				break;
+			case 'fetchModels':
+				await this.fetchModels(message.providerId, message.baseUrl, message.apiKey);
+				break;
 			case 'requestConfirm': {
 				const confirmed = await vscode.window.showInformationMessage(
-					message.message, { modal: true }, 'Yes', 'No',
+					message.message,
+					{ modal: true },
+					'Yes',
+					'No',
 				);
 				this.panel.webview.postMessage({
-					type: 'confirmResponse', id: message.id, confirmed: confirmed === 'Yes',
+					type: 'confirmResponse',
+					id: message.id,
+					confirmed: confirmed === 'Yes',
 				} as OutgoingMessage);
 				break;
 			}
@@ -121,7 +145,9 @@ export class ConfigViewPanel {
 		const providerKeys: Record<string, string> = {};
 		for (const p of providers) {
 			const key = await this.secrets.get(`${CONFIG_SECTION}.apiKey.${p.id}`);
-			if (key) { providerKeys[p.id] = '••••••••••••••••••••'; }
+			if (key) {
+				providerKeys[p.id] = '••••••••••••••••••••';
+			}
 		}
 
 		const hiddenModels = this.getHiddenModels();
@@ -131,7 +157,7 @@ export class ConfigViewPanel {
 		for (const m of MODELS) {
 			const isHidden = hiddenModels.includes(m.id);
 			// Merge user overrides for built-in models
-			const override = userModels.find(um => um.id === m.id);
+			const override = userModels.find((um) => um.id === m.id);
 			allModels.push({
 				id: m.id,
 				name: override?.name || m.name,
@@ -150,25 +176,37 @@ export class ConfigViewPanel {
 		}
 
 		for (const m of userModels) {
-			if (!MODELS.some(bm => bm.id === m.id)) {
+			if (!MODELS.some((bm) => bm.id === m.id)) {
 				allModels.push({ ...m, builtin: false, hidden: false });
 			}
 		}
 
 		this.panel.webview.postMessage({
-			type: 'init', payload: { providers, providerKeys, models: allModels } satisfies InitPayload,
+			type: 'init',
+			payload: { providers, providerKeys, models: allModels } satisfies InitPayload,
 		} as OutgoingMessage);
 	}
 
 	// ---- Provider CRUD ----
 
 	private async saveProvider(provider: ProviderDefinition, apiKey?: string) {
-		if (!provider.id?.trim()) { vscode.window.showErrorMessage('Provider ID is required.'); return; }
+		if (!provider.id?.trim()) {
+			vscode.window.showErrorMessage('Provider ID is required.');
+			return;
+		}
 		const config = vscode.workspace.getConfiguration();
 		const providers = getProviders();
-		const idx = providers.findIndex(p => p.id === provider.id);
-		if (idx >= 0) { providers[idx] = provider; } else { providers.push(provider); }
-		await config.update(`${CONFIG_SECTION}.providers`, providers, vscode.ConfigurationTarget.Global);
+		const idx = providers.findIndex((p) => p.id === provider.id);
+		if (idx >= 0) {
+			providers[idx] = provider;
+		} else {
+			providers.push(provider);
+		}
+		await config.update(
+			`${CONFIG_SECTION}.providers`,
+			providers,
+			vscode.ConfigurationTarget.Global,
+		);
 		if (apiKey && !apiKey.includes('...')) {
 			await this.secrets.store(`${CONFIG_SECTION}.apiKey.${provider.id}`, apiKey);
 		}
@@ -178,8 +216,12 @@ export class ConfigViewPanel {
 
 	private async deleteProvider(providerId: string) {
 		const config = vscode.workspace.getConfiguration();
-		const providers = getProviders().filter(p => p.id !== providerId);
-		await config.update(`${CONFIG_SECTION}.providers`, providers, vscode.ConfigurationTarget.Global);
+		const providers = getProviders().filter((p) => p.id !== providerId);
+		await config.update(
+			`${CONFIG_SECTION}.providers`,
+			providers,
+			vscode.ConfigurationTarget.Global,
+		);
 		await this.secrets.delete(`${CONFIG_SECTION}.apiKey.${providerId}`);
 		vscode.window.showInformationMessage(`Provider "${providerId}" deleted.`);
 		await this.sendInit();
@@ -199,14 +241,21 @@ export class ConfigViewPanel {
 
 	private async unhideModel(modelId: string) {
 		const config = vscode.workspace.getConfiguration();
-		const hidden = this.getHiddenModels().filter(id => id !== modelId);
-		await config.update(`${CONFIG_SECTION}.hiddenModels`, hidden, vscode.ConfigurationTarget.Global);
+		const hidden = this.getHiddenModels().filter((id) => id !== modelId);
+		await config.update(
+			`${CONFIG_SECTION}.hiddenModels`,
+			hidden,
+			vscode.ConfigurationTarget.Global,
+		);
 	}
 
 	private async addModel(model: UserModelConfig) {
 		const config = vscode.workspace.getConfiguration();
 		const models = this.getUserModels();
-		if (models.some(m => m.id === model.id)) { vscode.window.showErrorMessage(`Model "${model.id}" already exists.`); return; }
+		if (models.some((m) => m.id === model.id)) {
+			vscode.window.showErrorMessage(`Model "${model.id}" already exists.`);
+			return;
+		}
 		models.push(model);
 		await config.update(`${CONFIG_SECTION}.models`, models, vscode.ConfigurationTarget.Global);
 		await this.unhideModel(model.id);
@@ -217,8 +266,12 @@ export class ConfigViewPanel {
 	private async updateModel(model: UserModelConfig, originalId: string) {
 		const config = vscode.workspace.getConfiguration();
 		const models = this.getUserModels();
-		const idx = models.findIndex(m => m.id === originalId);
-		if (idx >= 0) { models[idx] = model; } else { models.push(model); }
+		const idx = models.findIndex((m) => m.id === originalId);
+		if (idx >= 0) {
+			models[idx] = model;
+		} else {
+			models.push(model);
+		}
 		await config.update(`${CONFIG_SECTION}.models`, models, vscode.ConfigurationTarget.Global);
 		await this.unhideModel(originalId);
 		vscode.window.showInformationMessage(`Model "${model.name}" updated.`);
@@ -226,17 +279,23 @@ export class ConfigViewPanel {
 	}
 
 	private async deleteModel(modelId: string) {
-		const isBuiltin = MODELS.some(m => m.id === modelId);
+		const isBuiltin = MODELS.some((m) => m.id === modelId);
 		if (isBuiltin) {
 			const config = vscode.workspace.getConfiguration();
 			const hidden = this.getHiddenModels();
-			if (!hidden.includes(modelId)) { hidden.push(modelId); }
-			await config.update(`${CONFIG_SECTION}.hiddenModels`, hidden, vscode.ConfigurationTarget.Global);
-			const models = this.getUserModels().filter(m => m.id !== modelId);
+			if (!hidden.includes(modelId)) {
+				hidden.push(modelId);
+			}
+			await config.update(
+				`${CONFIG_SECTION}.hiddenModels`,
+				hidden,
+				vscode.ConfigurationTarget.Global,
+			);
+			const models = this.getUserModels().filter((m) => m.id !== modelId);
 			await config.update(`${CONFIG_SECTION}.models`, models, vscode.ConfigurationTarget.Global);
 		} else {
 			const config = vscode.workspace.getConfiguration();
-			const models = this.getUserModels().filter(m => m.id !== modelId);
+			const models = this.getUserModels().filter((m) => m.id !== modelId);
 			await config.update(`${CONFIG_SECTION}.models`, models, vscode.ConfigurationTarget.Global);
 		}
 		vscode.window.showInformationMessage(`Model "${modelId}" removed.`);
@@ -256,13 +315,16 @@ export class ConfigViewPanel {
 			const url = `${baseUrl.replace(/\/+$/, '')}/models`;
 			const res = await fetch(url, { headers: { Authorization: `Bearer ${realKey}` } });
 			if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-			const data = await res.json() as { data?: Array<{ id: string; owned_by?: string }> };
+			const data = (await res.json()) as { data?: Array<{ id: string; owned_by?: string }> };
 			this.panel.webview.postMessage({
-				type: 'modelsFetched', providerId, models: data.data ?? [],
+				type: 'modelsFetched',
+				providerId,
+				models: data.data ?? [],
 			} as OutgoingMessage);
 		} catch (err) {
 			this.panel.webview.postMessage({
-				type: 'modelsFetchError', providerId,
+				type: 'modelsFetchError',
+				providerId,
 				error: err instanceof Error ? err.message : String(err),
 			} as OutgoingMessage);
 		}
@@ -271,9 +333,15 @@ export class ConfigViewPanel {
 	// ---- HTML ----
 
 	private async getHtml(webview: vscode.Webview): Promise<string> {
-		const nonce = Array.from({ length: 16 }, () => Math.floor(Math.random() * 36).toString(36)).join('');
-		const cssUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'assets', 'configView', 'configView.css'));
-		const jsUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'assets', 'configView', 'configView.js'));
+		const nonce = Array.from({ length: 16 }, () =>
+			Math.floor(Math.random() * 36).toString(36),
+		).join('');
+		const cssUri = webview.asWebviewUri(
+			vscode.Uri.joinPath(this.extensionUri, 'assets', 'configView', 'configView.css'),
+		);
+		const jsUri = webview.asWebviewUri(
+			vscode.Uri.joinPath(this.extensionUri, 'assets', 'configView', 'configView.js'),
+		);
 		const csp = `default-src 'none'; img-src ${webview.cspSource} https:; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'nonce-${nonce}';`;
 		return `<!DOCTYPE html>
 <html lang="en">

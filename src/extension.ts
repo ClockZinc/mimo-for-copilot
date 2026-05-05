@@ -28,9 +28,7 @@ export function activate(context: vscode.ExtensionContext) {
 		activeProvider = provider;
 
 		context.subscriptions.push(
-			vscode.commands.registerCommand('mimo-copilot.setApiKey', () =>
-				provider.configureApiKey(),
-			),
+			vscode.commands.registerCommand('mimo-copilot.setApiKey', () => provider.configureApiKey()),
 			vscode.commands.registerCommand('mimo-copilot.clearApiKey', () => provider.clearApiKey()),
 			vscode.commands.registerCommand('mimo-copilot.setVisionModel', () =>
 				provider.setVisionProxyModel(),

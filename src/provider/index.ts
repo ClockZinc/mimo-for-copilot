@@ -1,7 +1,13 @@
 import vscode from 'vscode';
 import { AuthManager } from '../auth';
 import { DeepSeekClient } from '../client';
-import { getApiModelId, getMaxTokens, resolveProviderForModel, getUserModels, getHiddenModels } from '../config';
+import {
+	getApiModelId,
+	getMaxTokens,
+	resolveProviderForModel,
+	getUserModels,
+	getHiddenModels,
+} from '../config';
 import { MODELS } from '../consts';
 import { t } from '../i18n';
 import { logger } from '../logger';
@@ -112,16 +118,19 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 
 	async clearApiKey(): Promise<void> {
 		const config = vscode.workspace.getConfiguration('mimo-copilot');
-		const providers: Array<{ id: string; name: string }> = config.get<Array<{ id: string; name: string }>>('providers') ?? [];
+		const providers: Array<{ id: string; name: string }> =
+			config.get<Array<{ id: string; name: string }>>('providers') ?? [];
 		const items: vscode.QuickPickItem[] = [
 			{ label: t('auth.allProviders'), description: 'Global + All Providers' },
-			...providers.map(p => ({ label: p.name, description: p.id })),
+			...providers.map((p) => ({ label: p.name, description: p.id })),
 		];
 		const chosen = await vscode.window.showQuickPick(items, {
 			placeHolder: t('auth.chooseProviderToClear'),
 			title: t('auth.clearProviderTitle'),
 		});
-		if (!chosen) { return; }
+		if (!chosen) {
+			return;
+		}
 
 		if (chosen.label === t('auth.allProviders')) {
 			await this.authManager.deleteApiKey();
@@ -200,32 +209,27 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			return hasGlobalKey;
 		}
 
-		const builtinInfos = MODELS
-			.filter((model) => !hiddenModels.includes(model.id))
-			.map((model) => toChatInfo(model, hasKeyForModel(model.providerId)));
+		const builtinInfos = MODELS.filter((model) => !hiddenModels.includes(model.id)).map((model) =>
+			toChatInfo(model, hasKeyForModel(model.providerId)),
+		);
 
 		const userModels = getUserModels();
 
 		// Apply user overrides to built-in models (e.g. context window, provider)
 		const overriddenBuiltins = builtinInfos.map((info) => {
-			const override = userModels.find(um => um.id === info.id);
-			if (!override) { return info; }
+			const override = userModels.find((um) => um.id === info.id);
+			if (!override) {
+				return info;
+			}
 			return {
 				...info,
 				name: override.name || info.name,
 				maxInputTokens: override.maxInputTokens || info.maxInputTokens,
 				maxOutputTokens: override.maxOutputTokens || info.maxOutputTokens,
-				detail: hasKeyForModel(override.providerId)
-					? `${override.providerId} · ${(override.maxInputTokens || info.maxInputTokens).toLocaleString()} tokens`
-					: t('auth.apiKeyRequiredDetail'),
-				capabilities: {
-					toolCalling: override.toolCalling ?? info.capabilities.toolCalling,
-					imageInput: override.vision ?? info.capabilities.imageInput,
-				},
 			};
 		});
 		const userInfos: ModelPickerChatInformation[] = userModels
-			.filter((m) => !hiddenModels.includes(m.id) && !MODELS.some(bm => bm.id === m.id))
+			.filter((m) => !hiddenModels.includes(m.id) && !MODELS.some((bm) => bm.id === m.id))
 			.map((m) => {
 				const hasKey = hasKeyForModel(m.providerId);
 				return {
@@ -233,7 +237,9 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 					name: m.name,
 					family: 'mimo-custom',
 					version: 'custom',
-					detail: hasKey ? `${m.providerId} · ${m.maxInputTokens.toLocaleString()} tokens` : t('auth.apiKeyRequiredDetail'),
+					detail: hasKey
+						? `${m.providerId} · ${m.maxInputTokens.toLocaleString()} tokens`
+						: t('auth.apiKeyRequiredDetail'),
 					maxInputTokens: m.maxInputTokens,
 					maxOutputTokens: m.maxOutputTokens,
 					isDefault: false,

@@ -57,7 +57,7 @@ export function getHiddenModels(): string[] {
 
 /** Find a provider by ID. Returns undefined if not found. */
 export function getProviderById(providerId: string): ProviderDefinition | undefined {
-	return getProviders().find(p => p.id === providerId);
+	return getProviders().find((p) => p.id === providerId);
 }
 
 /**
@@ -66,9 +66,10 @@ export function getProviderById(providerId: string): ProviderDefinition | undefi
  * If the model is linked to a provider (via `providerId`), uses that
  * provider's baseUrl. Otherwise falls back to the global baseUrl.
  */
-export function resolveProviderForModel(
-	modelProviderId: string | undefined,
-): { baseUrl: string; providerId: string } {
+export function resolveProviderForModel(modelProviderId: string | undefined): {
+	baseUrl: string;
+	providerId: string;
+} {
 	const globalBaseUrl = getBaseUrl();
 	if (!modelProviderId || modelProviderId === 'default') {
 		return { baseUrl: globalBaseUrl, providerId: 'default' };
@@ -76,7 +77,9 @@ export function resolveProviderForModel(
 	const provider = getProviderById(modelProviderId);
 	if (!provider) {
 		// Provider not found — log warning and fall back to global
-		console.warn(`[DeepSeek] Provider "${modelProviderId}" not found in providers list. Falling back to global baseUrl.`);
+		console.warn(
+			`[DeepSeek] Provider "${modelProviderId}" not found in providers list. Falling back to global baseUrl.`,
+		);
 		return { baseUrl: globalBaseUrl, providerId: modelProviderId };
 	}
 	return {
