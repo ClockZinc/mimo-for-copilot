@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.0.1](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.0.0...v1.0.1) (2026-05-06)
+
+
+### Bug Fixes
+
+* cascade uses provider-specific key only, not global fallback
+* check sibling provider keys even if not in providers config
+* configView cascade providerId + create model overrides when setting key
+* merge DEFAULT_PROVIDERS into getProviders so cascade can find mimo-tp
+* use user override providerId for model picker display
+
+
+### Features
+
+* add token usage status bar with click-to-config
+* default enhancedVision off to improve response latency
+
+
 ## [0.3.1](https://github.com/Vizards/deepseek-v4-for-copilot/compare/v0.3.0...v0.3.1) (2026-05-02)
 
 
