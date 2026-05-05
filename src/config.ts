@@ -1,5 +1,5 @@
 import vscode from 'vscode';
-import { CONFIG_SECTION } from './consts';
+import { CONFIG_SECTION, DEFAULT_PROVIDERS } from './consts';
 import type { ProviderDefinition, UserModelConfig } from './types';
 
 /**
@@ -12,7 +12,7 @@ export function getBaseUrl(): string {
 }
 
 /**
- * Resolve the API model ID to send to the endpoint.
+ * Get the resolved API model ID to send to the endpoint.
  *
  * Users can override model IDs via the `modelIdOverrides` setting object
  * (e.g. for third-party API proxies). Falls back to the VS Code model ID
@@ -37,10 +37,22 @@ export function getMaxTokens(): number | undefined {
 
 // ---- Multi-provider management ----
 
-/** Get the list of user-configured providers. */
+/**
+ * Get the list of all available providers (user-configured + DEFAULT_PROVIDERS).
+ * User entries take precedence over defaults with the same ID.
+ */
 export function getProviders(): ProviderDefinition[] {
 	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-	return config.get<ProviderDefinition[]>('providers') ?? [];
+	const userProviders = config.get<ProviderDefinition[]>('providers') ?? [];
+	// Merge: user providers override defaults with the same ID
+	const merged = new Map<string, ProviderDefinition>();
+	for (const dp of DEFAULT_PROVIDERS) {
+		merged.set(dp.id, dp);
+	}
+	for (const up of userProviders) {
+		merged.set(up.id, up);
+	}
+	return [...merged.values()];
 }
 
 /** Get the list of user-configured models. */
