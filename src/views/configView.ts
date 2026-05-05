@@ -216,7 +216,6 @@ export class ConfigViewPanel {
 
 	private async updateModel(model: UserModelConfig, originalId: string) {
 		const config = vscode.workspace.getConfiguration();
-		const isBuiltin = MODELS.some(m => m.id === originalId);
 		const models = this.getUserModels();
 		const idx = models.findIndex(m => m.id === originalId);
 		if (idx >= 0) { models[idx] = model; } else { models.push(model); }

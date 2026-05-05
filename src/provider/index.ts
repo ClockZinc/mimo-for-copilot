@@ -1,7 +1,7 @@
 import vscode from 'vscode';
 import { AuthManager } from '../auth';
 import { DeepSeekClient } from '../client';
-import { getApiModelId, getBaseUrl, getMaxTokens, resolveProviderForModel, getUserModels, getHiddenModels } from '../config';
+import { getApiModelId, getMaxTokens, resolveProviderForModel, getUserModels, getHiddenModels } from '../config';
 import { MODELS } from '../consts';
 import { t } from '../i18n';
 import { logger } from '../logger';
