@@ -222,8 +222,17 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			return hasGlobalKey;
 		}
 
+		function getEffectiveProviderId(modelProviderId: string | undefined): string {
+			if (!modelProviderId || modelProviderId === 'default') { return 'default'; }
+			if (providerKeyStatus.get(modelProviderId)) { return modelProviderId; }
+			for (const sibling of getRelatedProviders(modelProviderId)) {
+				if (providerKeyStatus.get(sibling)) { return sibling; }
+			}
+			return modelProviderId;
+		}
+
 		const builtinInfos = MODELS.filter((model) => !hiddenModels.includes(model.id)).map((model) =>
-			toChatInfo(model, hasKeyForModel(model.providerId)),
+			toChatInfo(model, hasKeyForModel(model.providerId), getEffectiveProviderId(model.providerId)),
 		);
 
 		const userModels = getUserModels();
@@ -503,16 +512,17 @@ function resolveDetailKey(m: ModelDefinition): string | undefined {
 	return translated !== key ? key : undefined;
 }
 
-function toChatInfo(m: ModelDefinition, hasApiKey: boolean): ModelPickerChatInformation {
+function toChatInfo(m: ModelDefinition, hasApiKey: boolean, effectiveProviderId?: string): ModelPickerChatInformation {
 	const detailKey = resolveDetailKey(m);
 	const modelDetail = detailKey ? t(detailKey) : m.detail;
 	const isMiMo = m.thinkingParamStyle === 'mimo';
+	const showProvider = effectiveProviderId || m.providerId || 'default';
 	return {
 		id: m.id,
 		name: m.name,
 		family: m.family,
 		version: m.version,
-		detail: hasApiKey ? modelDetail : t('auth.apiKeyRequiredDetail'),
+		detail: hasApiKey ? `${showProvider} · ${modelDetail}` : t('auth.apiKeyRequiredDetail'),
 		tooltip: hasApiKey ? undefined : t('auth.apiKeyRequiredDetail'),
 		statusIcon: hasApiKey ? undefined : new vscode.ThemeIcon('warning'),
 		maxInputTokens: m.maxInputTokens,
