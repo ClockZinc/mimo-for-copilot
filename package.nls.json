@@ -25,6 +25,7 @@
   "mimo-copilot.config.modelIdOverrides.deepseek-v4-flash.description": "API model ID for DeepSeek V4 Flash",
   "mimo-copilot.config.modelIdOverrides.deepseek-v4-pro.description": "API model ID for DeepSeek V4 Pro",
   "mimo-copilot.config.modelIdOverrides.mimo-v2.5-pro.description": "API model ID for MiMo V2.5 Pro",
+  "mimo-copilot.config.modelIdOverrides.mimo-v2.5.description": "API model ID for MiMo V2.5",
   "mimo-copilot.config.visionModel.description": "Model ID for vision proxy. Leave empty for auto-detection.",
   "mimo-copilot.config.visionPrompt.description": "Prompt sent to the vision proxy model when describing image attachments."
 }
