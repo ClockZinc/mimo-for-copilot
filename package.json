@@ -1,7 +1,7 @@
 {
   "name": "mimo-for-copilot",
-  "displayName": "%mimo-copilot.displayName%",
-  "description": "%mimo-copilot.description%",
+  "displayName": "MiMo for Copilot Chat",
+  "description": "Use MiMo V2.5 Pro & DeepSeek V4 models in Copilot Chat. Vision, thinking mode, agent tools. Multi-provider BYOK.",
   "icon": "resources/mimo.png",
   "version": "1.0.0",
   "publisher": "clockzincbit",
