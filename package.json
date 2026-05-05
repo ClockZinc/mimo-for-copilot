@@ -3,7 +3,7 @@
   "displayName": "%mimo-copilot.displayName%",
   "description": "%mimo-copilot.description%",
   "icon": "resources/mimo.png",
-  "version": "0.3.1",
+  "version": "1.0.0",
   "publisher": "ClockZinc",
   "license": "MIT",
   "repository": {
@@ -122,7 +122,8 @@
           "type": "array",
           "default": [
             { "id": "deepseek", "name": "DeepSeek", "baseUrl": "https://api.deepseek.com" },
-            { "id": "mimo", "name": "MiMo (Xiaomi)", "baseUrl": "https://api.deepseek.com" }
+            { "id": "mimo", "name": "MiMo (Xiaomi)", "baseUrl": "https://api.xiaomimimo.com/v1" },
+            { "id": "mimo-tp", "name": "MiMo Token Plan", "baseUrl": "https://token-plan-sgp.xiaomimimo.com/v1" }
           ],
           "items": {
             "type": "object",

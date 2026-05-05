@@ -113,6 +113,10 @@ export interface ModelDefinition {
 	requiresThinkingParam: boolean;
 	/** Link this model to a specific provider. Defaults to 'default' if omitted. */
 	providerId?: string;
+	/** Default temperature (0-2). */
+	temperature?: number;
+	/** Default top_p (0-1). */
+	topP?: number;
 }
 
 /** A configured API provider (DeepSeek, MiMo, or any OpenAI-compatible endpoint). */

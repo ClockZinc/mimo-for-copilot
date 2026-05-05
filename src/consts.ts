@@ -68,6 +68,7 @@ export const MODELS: ModelDefinition[] = [
 			thinking: true,
 		},
 		requiresThinkingParam: true,
+		temperature: 0,
 	},
 	{
 		id: 'deepseek-v4-pro',
@@ -83,6 +84,7 @@ export const MODELS: ModelDefinition[] = [
 			thinking: true,
 		},
 		requiresThinkingParam: true,
+		temperature: 0,
 	},
 	{
 		id: 'mimo-v2.5-pro',
@@ -90,8 +92,8 @@ export const MODELS: ModelDefinition[] = [
 		family: 'mimo',
 		version: 'v2.5',
 		detail: 'Xiaomi advanced reasoning model',
-		maxInputTokens: 131072,
-		maxOutputTokens: 32768,
+		maxInputTokens: 1048576,
+		maxOutputTokens: 131072,
 		capabilities: {
 			toolCalling: true,
 			imageInput: false,
@@ -99,11 +101,14 @@ export const MODELS: ModelDefinition[] = [
 		},
 		requiresThinkingParam: true,
 		providerId: 'mimo',
+		temperature: 1,
+		topP: 0.95,
 	},
 ];
 
 /** Default provider definitions. Users can add more via the config view. */
 export const DEFAULT_PROVIDERS: ProviderDefinition[] = [
 	{ id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com' },
-	{ id: 'mimo', name: 'MiMo (Xiaomi)', baseUrl: 'https://api.deepseek.com' },
+	{ id: 'mimo', name: 'MiMo (Xiaomi)', baseUrl: 'https://api.xiaomimimo.com/v1' },
+	{ id: 'mimo-tp', name: 'MiMo Token Plan', baseUrl: 'https://token-plan-sgp.xiaomimimo.com/v1' },
 ];

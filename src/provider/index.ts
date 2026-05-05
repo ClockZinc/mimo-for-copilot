@@ -94,7 +94,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			// When another window sets/clears the API key, refresh this window's
 			// model picker so the warning state stays in sync.
 			context.secrets.onDidChange((e) => {
-				if (e.key === 'mimo-copilot.apiKey') {
+				if (e.key === 'mimo-copilot.apiKey' || e.key.startsWith('mimo-copilot.apiKey.')) {
 					this.onDidChangeLanguageModelChatInformationEmitter.fire();
 				}
 			}),
@@ -111,13 +111,38 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 	}
 
 	async clearApiKey(): Promise<void> {
-		await this.authManager.deleteApiKey();
+		const config = vscode.workspace.getConfiguration('mimo-copilot');
+		const providers: Array<{ id: string; name: string }> = config.get<Array<{ id: string; name: string }>>('providers') ?? [];
+		const items: vscode.QuickPickItem[] = [
+			{ label: t('auth.allProviders'), description: 'Global + All Providers' },
+			...providers.map(p => ({ label: p.name, description: p.id })),
+		];
+		const chosen = await vscode.window.showQuickPick(items, {
+			placeHolder: t('auth.chooseProviderToClear'),
+			title: t('auth.clearProviderTitle'),
+		});
+		if (!chosen) { return; }
+
+		if (chosen.label === t('auth.allProviders')) {
+			await this.authManager.deleteApiKey();
+			for (const p of providers) {
+				await this.authManager.deleteProviderKey(p.id);
+			}
+		} else {
+			await this.authManager.deleteProviderKey(chosen.description!);
+		}
 		this.onDidChangeLanguageModelChatInformationEmitter.fire();
 		vscode.window.showInformationMessage(t('auth.removed'));
 	}
 
 	async hasApiKey(): Promise<boolean> {
 		return this.authManager.hasApiKey();
+	}
+
+	/** Check if a specific provider has an API key. */
+	async hasProviderApiKey(providerId: string): Promise<boolean> {
+		const key = await this.authManager.getApiKeyForProvider(providerId);
+		return key !== undefined && key.length > 0;
 	}
 
 	/** Force Copilot Chat to re-query model information (including configurationSchema). */
@@ -135,7 +160,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		// instead of leaving stale entries behind after deactivate. The returned
 		// model list itself is unused — we only call this for its side effect.
 		try {
-			await vscode.lm.selectChatModels({ vendor: 'deepseek' });
+			await vscode.lm.selectChatModels({ vendor: 'mimo' });
 		} catch (error) {
 			logger.warn('Failed to refresh DeepSeek models during deactivate', error);
 		}
@@ -157,33 +182,71 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		}
 
 		const hiddenModels = getHiddenModels();
-		const hasKey = await this.authManager.hasApiKey();
+
+		// Check per-provider keys
+		const providerKeyStatus = new Map<string, boolean>();
+		const config = vscode.workspace.getConfiguration('mimo-copilot');
+		const providers = config.get<Array<{ id: string }>>('providers') ?? [];
+		for (const p of providers) {
+			providerKeyStatus.set(p.id, await this.hasProviderApiKey(p.id));
+		}
+		// Global fallback
+		const hasGlobalKey = await this.authManager.hasApiKey();
+
+		function hasKeyForModel(providerId: string | undefined): boolean {
+			if (providerId && providerId !== 'default') {
+				return providerKeyStatus.get(providerId) ?? hasGlobalKey;
+			}
+			return hasGlobalKey;
+		}
 
 		const builtinInfos = MODELS
 			.filter((model) => !hiddenModels.includes(model.id))
-			.map((model) => toChatInfo(model, hasKey));
+			.map((model) => toChatInfo(model, hasKeyForModel(model.providerId)));
 
 		const userModels = getUserModels();
+
+		// Apply user overrides to built-in models (e.g. context window, provider)
+		const overriddenBuiltins = builtinInfos.map((info) => {
+			const override = userModels.find(um => um.id === info.id);
+			if (!override) { return info; }
+			return {
+				...info,
+				name: override.name || info.name,
+				maxInputTokens: override.maxInputTokens || info.maxInputTokens,
+				maxOutputTokens: override.maxOutputTokens || info.maxOutputTokens,
+				detail: hasKeyForModel(override.providerId)
+					? `${override.providerId} · ${(override.maxInputTokens || info.maxInputTokens).toLocaleString()} tokens`
+					: t('auth.apiKeyRequiredDetail'),
+				capabilities: {
+					toolCalling: override.toolCalling ?? info.capabilities.toolCalling,
+					imageInput: override.vision ?? info.capabilities.imageInput,
+				},
+			};
+		});
 		const userInfos: ModelPickerChatInformation[] = userModels
 			.filter((m) => !hiddenModels.includes(m.id) && !MODELS.some(bm => bm.id === m.id))
-			.map((m) => ({
-				id: m.id,
-				name: m.name,
-				family: 'mimo-custom',
-				version: 'custom',
-				detail: hasKey ? `${m.providerId} · ${m.maxInputTokens.toLocaleString()} tokens` : t('auth.apiKeyRequiredDetail'),
-				maxInputTokens: m.maxInputTokens,
-				maxOutputTokens: m.maxOutputTokens,
-				isDefault: false,
-				isUserSelectable: true,
-				capabilities: {
-					toolCalling: m.toolCalling,
-					imageInput: m.vision,
-				},
-				...(m.thinking ? { configurationSchema: buildThinkingEffortSchema() } : {}),
-			}));
+			.map((m) => {
+				const hasKey = hasKeyForModel(m.providerId);
+				return {
+					id: m.id,
+					name: m.name,
+					family: 'mimo-custom',
+					version: 'custom',
+					detail: hasKey ? `${m.providerId} · ${m.maxInputTokens.toLocaleString()} tokens` : t('auth.apiKeyRequiredDetail'),
+					maxInputTokens: m.maxInputTokens,
+					maxOutputTokens: m.maxOutputTokens,
+					isDefault: false,
+					isUserSelectable: true,
+					capabilities: {
+						toolCalling: m.toolCalling,
+						imageInput: m.vision,
+					},
+					...(m.thinking ? { configurationSchema: buildThinkingEffortSchema() } : {}),
+				};
+			});
 
-		return [...builtinInfos, ...userInfos];
+		return [...overriddenBuiltins, ...userInfos];
 	}
 
 	async provideLanguageModelChatResponse(
@@ -221,7 +284,12 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			isThinkingModel,
 			this.reasoningCache,
 		);
-		const tools = modelDef?.capabilities.toolCalling ? convertTools(options.tools) : undefined;
+		const canUseTools = modelDef?.capabilities.toolCalling ?? userModelDef?.toolCalling ?? true;
+		const tools = canUseTools ? convertTools(options.tools) : undefined;
+
+		// Temperature / topP: user override > model default
+		const userTemp = userModelDef?.temperature ?? modelDef?.temperature;
+		const userTopP = userModelDef?.topP ?? modelDef?.topP;
 
 		const totalRequestChars = countMessageChars(deepseekMessages);
 
@@ -238,6 +306,8 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 					tools,
 					tool_choice: tools && tools.length > 0 ? 'auto' : undefined,
 					max_tokens: maxTokens,
+					...(userTemp !== undefined ? { temperature: userTemp } : {}),
+					...(userTopP !== undefined ? { top_p: userTopP } : {}),
 					...(isThinkingModel
 						? {
 								thinking: {

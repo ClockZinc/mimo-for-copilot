@@ -31,6 +31,13 @@ const zh: Translations = {
 	'auth.saved': 'API Key 已安全保存。',
 	'auth.removed': 'API Key 已移除。',
 	'auth.notConfigured': 'API Key 未配置，请在命令面板运行 "MiMo: 设置 API Key"。',
+	'auth.chooseProviderTitle': '选择服务商',
+	'auth.chooseProvider': '请选择要配置 API Key 的服务商',
+	'auth.promptForProvider': '请输入 {0} 的 API Key',
+	'auth.savedForProvider': '{0} 的 API Key 已安全保存。',
+	'auth.chooseProviderToClear': '请选择要清除 API Key 的服务商',
+	'auth.clearProviderTitle': '清除 API Key',
+	'auth.allProviders': '全部 (全局 + 所有服务商)',
 
 	// Thinking Effort — short labels for model picker dropdown
 	'status.thinking': '思考模式',
@@ -72,6 +79,13 @@ const en: Translations = {
 	'auth.removed': 'API key removed.',
 	'auth.notConfigured':
 		'API key not configured. Run "MiMo: Set API Key" from the Command Palette.',
+	'auth.chooseProviderTitle': 'Choose Provider',
+	'auth.chooseProvider': 'Select which provider to configure an API key for',
+	'auth.promptForProvider': 'Enter your {0} API key',
+	'auth.savedForProvider': '{0} API key saved.',
+	'auth.chooseProviderToClear': 'Select which provider to clear the API key for',
+	'auth.clearProviderTitle': 'Clear API Key',
+	'auth.allProviders': 'All (Global + All Providers)',
 
 	// Thinking Effort
 	'status.thinking': 'Thinking Effort',

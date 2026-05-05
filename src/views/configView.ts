@@ -121,7 +121,7 @@ export class ConfigViewPanel {
 		const providerKeys: Record<string, string> = {};
 		for (const p of providers) {
 			const key = await this.secrets.get(`${CONFIG_SECTION}.apiKey.${p.id}`);
-			if (key) { providerKeys[p.id] = '...'; }
+			if (key) { providerKeys[p.id] = '••••••••••••••••••••'; }
 		}
 
 		const hiddenModels = this.getHiddenModels();
@@ -130,14 +130,22 @@ export class ConfigViewPanel {
 
 		for (const m of MODELS) {
 			const isHidden = hiddenModels.includes(m.id);
+			// Merge user overrides for built-in models
+			const override = userModels.find(um => um.id === m.id);
 			allModels.push({
-				id: m.id, name: m.name,
-				providerId: m.providerId || 'deepseek',
-				maxInputTokens: m.maxInputTokens, maxOutputTokens: m.maxOutputTokens,
-				toolCalling: m.capabilities.toolCalling, vision: m.capabilities.imageInput,
-				thinking: m.capabilities.thinking,
-				requiresThinkingParam: m.requiresThinkingParam,
-				builtin: true, hidden: isHidden,
+				id: m.id,
+				name: override?.name || m.name,
+				providerId: override?.providerId || m.providerId || 'deepseek',
+				maxInputTokens: override?.maxInputTokens || m.maxInputTokens,
+				maxOutputTokens: override?.maxOutputTokens || m.maxOutputTokens,
+				toolCalling: override?.toolCalling ?? m.capabilities.toolCalling,
+				vision: override?.vision ?? m.capabilities.imageInput,
+				thinking: override?.thinking ?? m.capabilities.thinking,
+				temperature: override?.temperature ?? m.temperature,
+				topP: override?.topP ?? m.topP,
+				requiresThinkingParam: override?.requiresThinkingParam ?? m.requiresThinkingParam,
+				builtin: true,
+				hidden: isHidden,
 			});
 		}
 

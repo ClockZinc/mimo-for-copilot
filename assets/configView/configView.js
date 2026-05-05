@@ -147,7 +147,7 @@
 			document.getElementById('pf-name').value = p ? p.name : '';
 			document.getElementById('pf-baseUrl').value = p ? p.baseUrl : '';
 			document.getElementById('pf-apiKey').value = providerKeys[providerId] || '';
-			document.getElementById('pf-apiKey').placeholder = providerKeys[providerId] ? '•••••••• (keep to retain)' : 'sk-...';
+			document.getElementById('pf-apiKey').placeholder = providerKeys[providerId] ? '•••••••••••••••••••• (keep to retain)' : 'sk-...';
 		} else {
 			document.getElementById('pfTitle').textContent = 'Add Provider';
 			document.getElementById('pf-id').value = '';

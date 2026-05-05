@@ -60,19 +60,63 @@ export class AuthManager {
 	}
 
 	/**
-	 * Check if an API key is configured.
+	 * Delete API key for a specific provider.
 	 */
-	async hasApiKey(): Promise<boolean> {
-		const key = await this.getApiKey();
-		return key !== undefined && key.length > 0;
+	async deleteProviderKey(providerId: string): Promise<void> {
+		await this.secretStorage.delete(`${CONFIG_SECTION}.apiKey.${providerId}`);
 	}
 
 	/**
-	 * Prompt user to enter API key via input box.
+	 * Check if ANY API key is configured (global or per-provider).
+	 */
+	async hasApiKey(): Promise<boolean> {
+		const globalKey = await this.getApiKey();
+		if (globalKey) {
+			return true;
+		}
+		// Also check per-provider keys
+		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+		const providers = config.get<Array<{ id: string }>>('providers') ?? [];
+		for (const p of providers) {
+			const key = await this.secretStorage.get(`${CONFIG_SECTION}.apiKey.${p.id}`);
+			if (key) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Prompt user to choose a provider, then enter its API key.
+	 * Returns true if a key was saved.
 	 */
 	async promptForApiKey(): Promise<boolean> {
+		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+		const providers: Array<{ id: string; name: string }> = config.get<Array<{ id: string; name: string }>>('providers') ?? [];
+
+		// Build provider choices
+		const items: vscode.QuickPickItem[] = providers.map(p => ({
+			label: p.name,
+			description: p.id,
+		}));
+		if (items.length === 0) {
+			items.push({ label: 'Default', description: 'Global API Key' });
+		}
+
+		const chosen = await vscode.window.showQuickPick(items, {
+			placeHolder: t('auth.chooseProvider'),
+			title: t('auth.chooseProviderTitle'),
+		});
+		if (!chosen) {
+			return false;
+		}
+
+		const providerId = chosen.description === 'Global API Key' ? undefined : chosen.description;
+
 		const apiKey = await vscode.window.showInputBox({
-			prompt: t('auth.prompt'),
+			prompt: providerId
+				? t('auth.promptForProvider', chosen.label)
+				: t('auth.prompt'),
 			placeHolder: t('auth.placeholder'),
 			password: true,
 			ignoreFocusOut: true,
@@ -80,16 +124,17 @@ export class AuthManager {
 				if (!value?.trim()) {
 					return t('auth.emptyValidation');
 				}
-				if (!value.startsWith('sk-')) {
-					return t('auth.prefixValidation');
-				}
 				return undefined;
 			},
 		});
 
 		if (apiKey) {
-			await this.setApiKey(apiKey);
-			vscode.window.showInformationMessage(t('auth.saved'));
+			if (providerId) {
+				await this.secretStorage.store(`${CONFIG_SECTION}.apiKey.${providerId}`, apiKey.trim());
+			} else {
+				await this.setApiKey(apiKey);
+			}
+			vscode.window.showInformationMessage(t('auth.savedForProvider', chosen.label));
 			return true;
 		}
 
