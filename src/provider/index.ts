@@ -248,7 +248,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 						toolCalling: m.toolCalling,
 						imageInput: m.vision,
 					},
-					...(m.thinking ? { configurationSchema: buildThinkingEffortSchema() } : {}),
+					...(m.thinking && m.requiresThinkingParam ? { configurationSchema: buildThinkingEffortSchema() } : {}),
 				};
 			});
 
@@ -265,6 +265,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		const modelDef = MODELS.find((m) => m.id === modelInfo.id);
 		const userModelDef = !modelDef ? getUserModels().find((m) => m.id === modelInfo.id) : undefined;
 		const isThinkingModel = modelDef?.capabilities.thinking ?? userModelDef?.thinking ?? false;
+		const needsThinkingParam = modelDef?.requiresThinkingParam ?? userModelDef?.requiresThinkingParam ?? true;
 		const thinkingEffort = getConfiguredThinkingEffort(options as ModelConfigurationOptions);
 		const maxTokens = getMaxTokens();
 
@@ -314,7 +315,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 					max_tokens: maxTokens,
 					...(userTemp !== undefined ? { temperature: userTemp } : {}),
 					...(userTopP !== undefined ? { top_p: userTopP } : {}),
-					...(isThinkingModel
+					...(isThinkingModel && needsThinkingParam
 						? {
 								thinking: {
 									type: thinkingEffort === 'none' ? ('disabled' as const) : ('enabled' as const),
@@ -491,7 +492,7 @@ function toChatInfo(m: ModelDefinition, hasApiKey: boolean): ModelPickerChatInfo
 			toolCalling: m.capabilities.toolCalling,
 			imageInput: m.capabilities.imageInput,
 		},
-		...(m.capabilities.thinking ? { configurationSchema: buildThinkingEffortSchema() } : {}),
+		...(m.capabilities.thinking && m.requiresThinkingParam ? { configurationSchema: buildThinkingEffortSchema() } : {}),
 	};
 }
 
