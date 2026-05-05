@@ -3,12 +3,16 @@ import { WALKTHROUGH_ID, WELCOME_SHOWN_KEY, OPEN_CONFIG_COMMAND } from './consts
 import { t } from './i18n';
 import { logger } from './logger';
 import { DeepSeekChatProvider } from './provider';
+import { initStatusBar } from './statusBar';
 import { ConfigViewPanel } from './views/configView';
 
 let activeProvider: DeepSeekChatProvider | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
 	logger.info('Activating extension');
+
+	// Initialize token usage status bar
+	initStatusBar(context);
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand('mimo-copilot.showLogs', () => logger.show()),

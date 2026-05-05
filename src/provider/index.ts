@@ -16,6 +16,7 @@ import type { DeepSeekToolCall, ModelDefinition } from '../types';
 import { type ReasoningEntry, pruneReasoningCache } from './cache';
 import { convertMessages, convertTools, countMessageChars } from './convert';
 import { createVisionModelGetter, resolveImageMessages, setVisionProxyModel } from './vision';
+import { updateStatusBarFromUsage } from '../statusBar';
 
 /**
  * NOTE: Non-public API surface.
@@ -440,6 +441,9 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 								` | cache: hit=${cacheHit} miss=${cacheMiss} rate=${hitRate}%` +
 								` | chars/tok=${this.charsPerToken.toFixed(2)}`,
 						);
+
+						// Update status bar with real token usage
+						updateStatusBarFromUsage(usage, modelInfo.maxInputTokens);
 					},
 				},
 				token,
