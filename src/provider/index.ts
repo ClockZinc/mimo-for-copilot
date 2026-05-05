@@ -154,19 +154,9 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		return this.authManager.hasApiKey();
 	}
 
-	/** Check if a specific provider has an API key (includes global fallback). */
+	/** Check if a specific provider has an API key. */
 	async hasProviderApiKey(providerId: string): Promise<boolean> {
 		const key = await this.authManager.getApiKeyForProvider(providerId);
-		return key !== undefined && key.length > 0;
-	}
-
-	/**
-	 * Check if a provider has its OWN API key (no global fallback).
-	 * Used for cascade resolution: if mimo has no specific key but mimo-tp does,
-	 * cascade to mimo-tp. The global key alone should NOT prevent cascade.
-	 */
-	async hasProviderSpecificKey(providerId: string): Promise<boolean> {
-		const key = await this.authManager.getProviderSpecificKey(providerId);
 		return key !== undefined && key.length > 0;
 	}
 
@@ -208,22 +198,12 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 
 		const hiddenModels = getHiddenModels();
 
-		// Check per-provider keys (specific keys only, no global fallback)
-		// Also check sibling providers of all models (e.g. mimo-tp) even if not in providers config
+		// Check per-provider keys
 		const providerKeyStatus = new Map<string, boolean>();
 		const config = vscode.workspace.getConfiguration('mimo-copilot');
 		const providers = config.get<Array<{ id: string }>>('providers') ?? [];
-		const providerIdsToCheck = new Set<string>(providers.map((p) => p.id));
-		for (const model of MODELS) {
-			if (model.providerId) {
-				providerIdsToCheck.add(model.providerId);
-				for (const sibling of getRelatedProviders(model.providerId)) {
-					providerIdsToCheck.add(sibling);
-				}
-			}
-		}
-		for (const id of providerIdsToCheck) {
-			providerKeyStatus.set(id, await this.hasProviderSpecificKey(id));
+		for (const p of providers) {
+			providerKeyStatus.set(p.id, await this.hasProviderApiKey(p.id));
 		}
 
 		// Only the actual global key (mimo-copilot.apiKey) counts as global fallback
@@ -259,21 +239,10 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		const userModels = getUserModels();
 
 		// Apply user overrides to built-in models (e.g. context window, provider)
-		// When user override has a different providerId (e.g. 'mimo-tp'),
-		// rebuild the detail string and effective provider from the override.
 		const overriddenBuiltins = builtinInfos.map((info) => {
 			const override = userModels.find((um) => um.id === info.id);
 			if (!override) {
 				return info;
-			}
-			if (override.providerId && override.providerId !== info.id) {
-				const overriddenModel = MODELS.find((m) => m.id === info.id)!;
-				const overriddenModelDef = { ...overriddenModel, providerId: override.providerId };
-				return toChatInfo(
-					overriddenModelDef,
-					hasKeyForModel(override.providerId),
-					getEffectiveProviderId(override.providerId),
-				);
 			}
 			return {
 				...info,
@@ -331,19 +300,11 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 
 		// Resolve provider-specific settings (baseUrl + apiKey) with cascade
 		const modelProviderId = modelDef?.providerId ?? userModelDef?.providerId;
-		// Build key status map for cascade resolution (specific keys only)
-		// Also check sibling providers of all models even if not in providers config
+		// Build key status map for cascade resolution
 		const keyStatus = new Map<string, boolean>();
 		const allProviders = vscode.workspace.getConfiguration('mimo-copilot').get<Array<{ id: string }>>('providers') ?? [];
-		const idsToCheck = new Set<string>(allProviders.map((p) => p.id));
-		if (modelProviderId) {
-			idsToCheck.add(modelProviderId);
-			for (const sibling of getRelatedProviders(modelProviderId)) {
-				idsToCheck.add(sibling);
-			}
-		}
-		for (const id of idsToCheck) {
-			keyStatus.set(id, await this.hasProviderSpecificKey(id));
+		for (const p of allProviders) {
+			keyStatus.set(p.id, await this.hasProviderApiKey(p.id));
 		}
 		const { baseUrl, providerId } = resolveProviderForModel(modelProviderId, keyStatus);
 		logger.info(`[Request] model=${modelInfo.id} providerId=${providerId} baseUrl=${baseUrl}`);
