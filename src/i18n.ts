@@ -41,12 +41,16 @@ const zh: Translations = {
 
 	// Thinking Effort — short labels for model picker dropdown
 	'status.thinking': '思考模式',
-	'thinking.none': '停用',
+	'thinking.none': 'No Thinking',
 	'thinking.none.desc': '停用思考，响应更快',
-	'thinking.high': '标准',
+	'thinking.high': 'High',
 	'thinking.high.desc': '推荐日常使用',
-	'thinking.max': '深度',
+	'thinking.max': 'Max',
 	'thinking.max.desc': '深度推理，适合复杂任务',
+	'thinking.on': 'On',
+	'thinking.on.desc': '启用推理',
+	'thinking.off': 'Off',
+	'thinking.off.desc': '停用推理',
 
 	// Vision
 	'vision.vendorLabel': '提供商：{0}',
@@ -88,12 +92,16 @@ const en: Translations = {
 
 	// Thinking Effort
 	'status.thinking': 'Thinking Effort',
-	'thinking.none': 'None',
+	'thinking.none': 'No Thinking',
 	'thinking.none.desc': 'Disable thinking for faster responses',
 	'thinking.high': 'High',
 	'thinking.high.desc': 'Recommended for most tasks',
 	'thinking.max': 'Max',
 	'thinking.max.desc': 'Maximum reasoning depth for complex agent tasks',
+	'thinking.on': 'On',
+	'thinking.on.desc': 'Enable reasoning',
+	'thinking.off': 'Off',
+	'thinking.off.desc': 'Disable reasoning',
 
 	// Vision
 	// NOTE: vision.unableToDescribe has been moved to consts.ts as

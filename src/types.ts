@@ -111,6 +111,13 @@ export interface ModelDefinition {
 		thinking: boolean;
 	};
 	requiresThinkingParam: boolean;
+	/**
+	 * Thinking parameter style:
+	 * - 'deepseek' → sends `thinking` + `reasoning_effort`
+	 * - 'mimo' → sends `reasoning` (boolean only)
+	 * Defaults to 'deepseek' if omitted.
+	 */
+	thinkingParamStyle?: 'deepseek' | 'mimo';
 	/** Link this model to a specific provider. Defaults to 'default' if omitted. */
 	providerId?: string;
 	/** Default temperature (0-2). */
