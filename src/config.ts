@@ -63,8 +63,9 @@ export function getProviderById(providerId: string): ProviderDefinition | undefi
 /**
  * Resolve the effective base URL and API key for a model.
  *
- * If the model is linked to a provider (via `providerId`), uses that
- * provider's baseUrl. Otherwise falls back to the global baseUrl.
+ * Auto-cascades to sibling providers when the model's preferred
+ * provider has no key but a related provider does (e.g. MiMo
+ * model linked to `mimo` will use `mimo-tp` if available).
  */
 export function resolveProviderForModel(modelProviderId: string | undefined): {
 	baseUrl: string;
@@ -74,16 +75,25 @@ export function resolveProviderForModel(modelProviderId: string | undefined): {
 	if (!modelProviderId || modelProviderId === 'default') {
 		return { baseUrl: globalBaseUrl, providerId: 'default' };
 	}
-	const provider = getProviderById(modelProviderId);
+	// Try the configured provider first, then cascade to siblings
+	let provider = getProviderById(modelProviderId);
 	if (!provider) {
-		// Provider not found — log warning and fall back to global
-		console.warn(
-			`[DeepSeek] Provider "${modelProviderId}" not found in providers list. Falling back to global baseUrl.`,
-		);
+		for (const sibling of getRelatedProviders(modelProviderId)) {
+			provider = getProviderById(sibling);
+			if (provider) { break; }
+		}
+	}
+	if (!provider) {
 		return { baseUrl: globalBaseUrl, providerId: modelProviderId };
 	}
-	return {
-		baseUrl: provider.baseUrl,
-		providerId: modelProviderId,
+	return { baseUrl: provider.baseUrl, providerId: provider.id };
+}
+
+/** Return related provider IDs that can serve as fallbacks. */
+export function getRelatedProviders(providerId: string): string[] {
+	const cascades: Record<string, string[]> = {
+		'mimo': ['mimo-tp'],
+		'mimo-tp': ['mimo'],
 	};
+	return cascades[providerId] ?? [];
 }

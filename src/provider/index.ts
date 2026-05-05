@@ -199,14 +199,20 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		for (const p of providers) {
 			providerKeyStatus.set(p.id, await this.hasProviderApiKey(p.id));
 		}
-		// Global fallback
+		// Check if model is MiMo & user only has mimo-tp key → auto-add that provider's key to status map
+		if (providerKeyStatus.get('mimo-tp') && !providerKeyStatus.get('mimo')) {
+			providerKeyStatus.set('mimo', true);
+		}
+		if (providerKeyStatus.get('mimo') && !providerKeyStatus.get('mimo-tp')) {
+			providerKeyStatus.set('mimo-tp', true);
+		}
 		const hasGlobalKey = await this.authManager.hasApiKey();
 
 		function hasKeyForModel(providerId: string | undefined): boolean {
-			if (providerId && providerId !== 'default') {
-				return providerKeyStatus.get(providerId) ?? hasGlobalKey;
+			if (!providerId || providerId === 'default') {
+				return hasGlobalKey;
 			}
-			return hasGlobalKey;
+			return providerKeyStatus.get(providerId) ?? hasGlobalKey;
 		}
 
 		const builtinInfos = MODELS.filter((model) => !hiddenModels.includes(model.id)).map((model) =>
