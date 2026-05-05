@@ -61,35 +61,41 @@ export function getProviderById(providerId: string): ProviderDefinition | undefi
 }
 
 /**
- * Resolve the effective base URL and API key for a model.
+ * Resolve the effective base URL and provider ID for a model.
  *
- * Auto-cascades to sibling providers when the model's preferred
- * provider has no key but a related provider does (e.g. MiMo
- * model linked to `mimo` will use `mimo-tp` if available).
+ * Priority: configured provider → sibling provider (mimo ↔ mimo-tp) → global fallback.
+ * Does NOT check keys — just resolves which provider to use.
  */
-export function resolveProviderForModel(modelProviderId: string | undefined): {
-	baseUrl: string;
-	providerId: string;
-} {
+export function resolveProviderForModel(
+	modelProviderId: string | undefined,
+	providerKeyStatus?: Map<string, boolean>,
+): { baseUrl: string; providerId: string } {
 	const globalBaseUrl = getBaseUrl();
 	if (!modelProviderId || modelProviderId === 'default') {
 		return { baseUrl: globalBaseUrl, providerId: 'default' };
 	}
-	// Try the configured provider first, then cascade to siblings
-	let provider = getProviderById(modelProviderId);
-	if (!provider) {
-		for (const sibling of getRelatedProviders(modelProviderId)) {
-			provider = getProviderById(sibling);
-			if (provider) { break; }
+	const provider = getProviderById(modelProviderId);
+	if (provider) {
+		// If this provider has no key but a sibling does, use the sibling
+		if (providerKeyStatus && !providerKeyStatus.get(modelProviderId)) {
+			for (const sibling of getRelatedProviders(modelProviderId)) {
+				if (providerKeyStatus.get(sibling)) {
+					const sib = getProviderById(sibling);
+					if (sib) { return { baseUrl: sib.baseUrl, providerId: sib.id }; }
+				}
+			}
 		}
+		return { baseUrl: provider.baseUrl, providerId: provider.id };
 	}
-	if (!provider) {
-		return { baseUrl: globalBaseUrl, providerId: modelProviderId };
+	// Provider not in config — try siblings
+	for (const sibling of getRelatedProviders(modelProviderId)) {
+		const sib = getProviderById(sibling);
+		if (sib) { return { baseUrl: sib.baseUrl, providerId: sib.id }; }
 	}
-	return { baseUrl: provider.baseUrl, providerId: provider.id };
+	return { baseUrl: globalBaseUrl, providerId: modelProviderId };
 }
 
-/** Return related provider IDs that can serve as fallbacks. */
+/** Related providers that can serve as fallbacks for each other. */
 export function getRelatedProviders(providerId: string): string[] {
 	const cascades: Record<string, string[]> = {
 		'mimo': ['mimo-tp'],

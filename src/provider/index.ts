@@ -4,6 +4,7 @@ import { DeepSeekClient } from '../client';
 import {
 	getApiModelId,
 	getMaxTokens,
+	getRelatedProviders,
 	resolveProviderForModel,
 	getUserModels,
 	getHiddenModels,
@@ -88,7 +89,11 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			this.onDidChangeLanguageModelChatInformationEmitter,
 			// Settings-based fallback API key + vision model changes.
 			vscode.workspace.onDidChangeConfiguration((e) => {
-				if (e.affectsConfiguration('mimo-copilot.apiKey')) {
+				if (
+					e.affectsConfiguration('mimo-copilot.apiKey') ||
+					e.affectsConfiguration('mimo-copilot.providers') ||
+					e.affectsConfiguration('mimo-copilot.models')
+				) {
 					this.onDidChangeLanguageModelChatInformationEmitter.fire();
 				}
 
@@ -199,20 +204,22 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		for (const p of providers) {
 			providerKeyStatus.set(p.id, await this.hasProviderApiKey(p.id));
 		}
-		// Check if model is MiMo & user only has mimo-tp key → auto-add that provider's key to status map
-		if (providerKeyStatus.get('mimo-tp') && !providerKeyStatus.get('mimo')) {
-			providerKeyStatus.set('mimo', true);
-		}
-		if (providerKeyStatus.get('mimo') && !providerKeyStatus.get('mimo-tp')) {
-			providerKeyStatus.set('mimo-tp', true);
-		}
-		const hasGlobalKey = await this.authManager.hasApiKey();
+
+		// Only the actual global key (mimo-copilot.apiKey) counts as global fallback
+		const hasGlobalKey = !!(await this.authManager.getApiKey());
 
 		function hasKeyForModel(providerId: string | undefined): boolean {
 			if (!providerId || providerId === 'default') {
 				return hasGlobalKey;
 			}
-			return providerKeyStatus.get(providerId) ?? hasGlobalKey;
+			// Check this provider's key first
+			if (providerKeyStatus.get(providerId)) { return true; }
+			// Cascade: mimo ↔ mimo-tp
+			for (const sibling of getRelatedProviders(providerId)) {
+				if (providerKeyStatus.get(sibling)) { return true; }
+			}
+			// Fall back to global key only
+			return hasGlobalKey;
 		}
 
 		const builtinInfos = MODELS.filter((model) => !hiddenModels.includes(model.id)).map((model) =>
@@ -280,11 +287,16 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		const nativeVision = modelDef?.capabilities.nativeVision ?? userModelDef?.nativeVision ?? false;
 		const enhancedVision = modelDef?.enhancedVision ?? userModelDef?.enhancedVision ?? true;
 
-		// Resolve provider-specific settings (baseUrl + apiKey)
+		// Resolve provider-specific settings (baseUrl + apiKey) with cascade
 		const modelProviderId = modelDef?.providerId ?? userModelDef?.providerId;
-		logger.info(`[Request] model=${modelInfo.id} providerId=${modelProviderId ?? '(none)'}`);
-		const { baseUrl, providerId } = resolveProviderForModel(modelProviderId);
-		logger.info(`[Request] resolved baseUrl=${baseUrl} apiKeyProvider=${providerId}`);
+		// Build key status map for cascade resolution
+		const keyStatus = new Map<string, boolean>();
+		const allProviders = vscode.workspace.getConfiguration('mimo-copilot').get<Array<{ id: string }>>('providers') ?? [];
+		for (const p of allProviders) {
+			keyStatus.set(p.id, await this.hasProviderApiKey(p.id));
+		}
+		const { baseUrl, providerId } = resolveProviderForModel(modelProviderId, keyStatus);
+		logger.info(`[Request] model=${modelInfo.id} providerId=${providerId} baseUrl=${baseUrl}`);
 		const apiKey = await this.authManager.getApiKeyForProvider(providerId);
 		if (!apiKey) {
 			throw new Error(t('auth.notConfigured') + ` (provider: ${providerId})`);

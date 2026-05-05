@@ -69,6 +69,7 @@ export const MODELS: ModelDefinition[] = [
 		},
 		enhancedVision: true,
 		requiresThinkingParam: true,
+		providerId: 'deepseek',
 		temperature: 0,
 	},
 	{
@@ -86,6 +87,7 @@ export const MODELS: ModelDefinition[] = [
 		},
 		enhancedVision: true,
 		requiresThinkingParam: true,
+		providerId: 'deepseek',
 		temperature: 0,
 	},
 	{
