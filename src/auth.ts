@@ -130,6 +130,8 @@ export class AuthManager {
 		if (apiKey) {
 			if (providerId) {
 				await this.secretStorage.store(`${CONFIG_SECTION}.apiKey.${providerId}`, apiKey.trim());
+				// Auto-update MiMo models' providerId when a MiMo-family provider key is set
+				await updateMiMoModelProviders(providerId);
 			} else {
 				await this.setApiKey(apiKey);
 			}
@@ -138,5 +140,30 @@ export class AuthManager {
 		}
 
 		return false;
+	}
+}
+
+/** MiMo provider family — setting key for any of these updates MiMo models' providerId. */
+const MIMO_PROVIDER_FAMILY = ['mimo', 'mimo-tp'];
+
+/**
+ * When user sets API key for a MiMo-family provider (mimo or mimo-tp),
+ * automatically update all built-in MiMo models' providerId to that provider.
+ */
+export async function updateMiMoModelProviders(providerId: string): Promise<void> {
+	if (!MIMO_PROVIDER_FAMILY.includes(providerId)) { return; }
+
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	const models = config.get<Array<{ id: string; providerId?: string }>>('models') ?? [];
+	const BUILTIN_MIMO_MODELS = ['mimo-v2.5-pro', 'mimo-v2.5'];
+	let changed = false;
+	for (const m of models) {
+		if (BUILTIN_MIMO_MODELS.includes(m.id) && m.providerId !== providerId) {
+			m.providerId = providerId;
+			changed = true;
+		}
+	}
+	if (changed) {
+		await config.update('models', models, vscode.ConfigurationTarget.Global);
 	}
 }

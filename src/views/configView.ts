@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type { ProviderDefinition, UserModelConfig } from '../types';
 import { CONFIG_SECTION, MODELS } from '../consts';
 import { getProviders } from '../config';
+import { updateMiMoModelProviders } from '../auth';
 
 // ---- Types ----
 
@@ -378,7 +379,7 @@ export class ConfigViewPanel {
 <div class="field"><label for="mf-topP">Top P (0-1)</label><input id="mf-topP" type="number" min="0" max="1" step="0.05" placeholder="(default)"/></div>
 <div class="field"><label for="mf-toolCalling">Tool Calling</label><select id="mf-toolCalling"><option value="true">Yes</option><option value="false">No</option></select></div>
 <div class="field"><label for="mf-nativeVision">Native Vision</label><select id="mf-nativeVision"><option value="false">No</option><option value="true">Yes</option></select><div class="hint">Model natively supports image input</div></div>
-<div class="field"><label for="mf-enhancedVision">Enhanced Vision</label><select id="mf-enhancedVision"><option value="true">Yes</option><option value="false">No</option></select><div class="hint">Use Copilot proxy for image descriptions</div></div>
+<div class="field"><label for="mf-enhancedVision">Enhanced Vision</label><select id="mf-enhancedVision"><option value="false">No</option><option value="true">Yes</option></select><div class="hint">用 Copilot 代理描述图片（会增加响应延迟，建议保持关闭）</div></div>
 <div class="field"><label for="mf-thinking">Thinking</label><select id="mf-thinking"><option value="true">Yes</option><option value="false">No</option></select></div>
 </div>
 <div class="form-actions"><button id="mf-save" class="btn primary">Save</button><button id="mf-cancel" class="btn secondary">Cancel</button></div>

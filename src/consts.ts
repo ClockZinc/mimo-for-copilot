@@ -67,7 +67,8 @@ export const MODELS: ModelDefinition[] = [
 			nativeVision: false,
 			thinking: true,
 		},
-		enhancedVision: true,
+		// NOTE: 默认关闭 enhancedVision 以加快首字响应速度。启用后每条含图消息会多一次 Copilot 代理请求。
+		enhancedVision: false,
 		requiresThinkingParam: true,
 		providerId: 'deepseek',
 		temperature: 0,
@@ -85,7 +86,8 @@ export const MODELS: ModelDefinition[] = [
 			nativeVision: false,
 			thinking: true,
 		},
-		enhancedVision: true,
+		// NOTE: 默认关闭 enhancedVision 以加快首字响应速度。启用后每条含图消息会多一次 Copilot 代理请求。
+		enhancedVision: false,
 		requiresThinkingParam: true,
 		providerId: 'deepseek',
 		temperature: 0,
@@ -103,7 +105,8 @@ export const MODELS: ModelDefinition[] = [
 			nativeVision: false,
 			thinking: true,
 		},
-		enhancedVision: true,
+		// NOTE: 默认关闭 enhancedVision 以加快首字响应速度。启用后每条含图消息会多一次 Copilot 代理请求。
+		enhancedVision: false,
 		requiresThinkingParam: true,
 		thinkingParamStyle: 'mimo',
 		providerId: 'mimo',

@@ -293,8 +293,9 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		const maxTokens = getMaxTokens();
 
 		// Vision: native vision skips proxy, enhancedVision uses Copilot proxy
+		// NOTE: 默认关闭 enhancedVision 以加快首字响应速度
 		const nativeVision = modelDef?.capabilities.nativeVision ?? userModelDef?.nativeVision ?? false;
-		const enhancedVision = modelDef?.enhancedVision ?? userModelDef?.enhancedVision ?? true;
+		const enhancedVision = modelDef?.enhancedVision ?? userModelDef?.enhancedVision ?? false;
 
 		// Resolve provider-specific settings (baseUrl + apiKey) with cascade
 		const modelProviderId = modelDef?.providerId ?? userModelDef?.providerId;
