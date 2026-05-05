@@ -259,10 +259,21 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		const userModels = getUserModels();
 
 		// Apply user overrides to built-in models (e.g. context window, provider)
+		// When user override has a different providerId (e.g. 'mimo-tp'),
+		// rebuild the detail string and effective provider from the override.
 		const overriddenBuiltins = builtinInfos.map((info) => {
 			const override = userModels.find((um) => um.id === info.id);
 			if (!override) {
 				return info;
+			}
+			if (override.providerId && override.providerId !== info.id) {
+				const overriddenModel = MODELS.find((m) => m.id === info.id)!;
+				const overriddenModelDef = { ...overriddenModel, providerId: override.providerId };
+				return toChatInfo(
+					overriddenModelDef,
+					hasKeyForModel(override.providerId),
+					getEffectiveProviderId(override.providerId),
+				);
 			}
 			return {
 				...info,
