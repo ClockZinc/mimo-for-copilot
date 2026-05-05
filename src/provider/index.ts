@@ -209,11 +209,21 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		const hiddenModels = getHiddenModels();
 
 		// Check per-provider keys (specific keys only, no global fallback)
+		// Also check sibling providers of all models (e.g. mimo-tp) even if not in providers config
 		const providerKeyStatus = new Map<string, boolean>();
 		const config = vscode.workspace.getConfiguration('mimo-copilot');
 		const providers = config.get<Array<{ id: string }>>('providers') ?? [];
-		for (const p of providers) {
-			providerKeyStatus.set(p.id, await this.hasProviderSpecificKey(p.id));
+		const providerIdsToCheck = new Set<string>(providers.map((p) => p.id));
+		for (const model of MODELS) {
+			if (model.providerId) {
+				providerIdsToCheck.add(model.providerId);
+				for (const sibling of getRelatedProviders(model.providerId)) {
+					providerIdsToCheck.add(sibling);
+				}
+			}
+		}
+		for (const id of providerIdsToCheck) {
+			providerKeyStatus.set(id, await this.hasProviderSpecificKey(id));
 		}
 
 		// Only the actual global key (mimo-copilot.apiKey) counts as global fallback
@@ -311,10 +321,18 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		// Resolve provider-specific settings (baseUrl + apiKey) with cascade
 		const modelProviderId = modelDef?.providerId ?? userModelDef?.providerId;
 		// Build key status map for cascade resolution (specific keys only)
+		// Also check sibling providers of all models even if not in providers config
 		const keyStatus = new Map<string, boolean>();
 		const allProviders = vscode.workspace.getConfiguration('mimo-copilot').get<Array<{ id: string }>>('providers') ?? [];
-		for (const p of allProviders) {
-			keyStatus.set(p.id, await this.hasProviderSpecificKey(p.id));
+		const idsToCheck = new Set<string>(allProviders.map((p) => p.id));
+		if (modelProviderId) {
+			idsToCheck.add(modelProviderId);
+			for (const sibling of getRelatedProviders(modelProviderId)) {
+				idsToCheck.add(sibling);
+			}
+		}
+		for (const id of idsToCheck) {
+			keyStatus.set(id, await this.hasProviderSpecificKey(id));
 		}
 		const { baseUrl, providerId } = resolveProviderForModel(modelProviderId, keyStatus);
 		logger.info(`[Request] model=${modelInfo.id} providerId=${providerId} baseUrl=${baseUrl}`);
