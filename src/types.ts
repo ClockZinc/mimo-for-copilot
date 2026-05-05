@@ -41,8 +41,6 @@ export interface DeepSeekRequest {
 	tool_choice?: 'none' | 'auto' | 'required';
 	thinking?: { type: 'enabled' | 'disabled' };
 	reasoning_effort?: 'high' | 'max';
-	/** MiMo reasoning toggle — true to enable, false/absent = default */
-	reasoning?: boolean;
 	stream_options?: {
 		include_usage: boolean;
 	};

@@ -316,7 +316,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 					...(userTopP !== undefined ? { top_p: userTopP } : {}),
 					...(isThinkingModel && needsThinkingParam
 					? (isMiMo
-						? { reasoning: thinkingEffort !== 'none' }
+						? { thinking: { type: thinkingEffort !== 'none' ? 'enabled' as const : 'disabled' as const } }
 						: { thinking: { type: thinkingEffort === 'none' ? 'disabled' as const : 'enabled' as const },
 							...(thinkingEffort !== 'none' ? { reasoning_effort: thinkingEffort as 'high' | 'max' } : {}) }
 					) as Record<string, unknown>
