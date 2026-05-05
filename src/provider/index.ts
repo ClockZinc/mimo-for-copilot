@@ -276,7 +276,9 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 
 		// Resolve provider-specific settings (baseUrl + apiKey)
 		const modelProviderId = modelDef?.providerId ?? userModelDef?.providerId;
+		logger.info(`[Request] model=${modelInfo.id} providerId=${modelProviderId ?? '(none)'}`);
 		const { baseUrl, providerId } = resolveProviderForModel(modelProviderId);
+		logger.info(`[Request] resolved baseUrl=${baseUrl} apiKeyProvider=${providerId}`);
 		const apiKey = await this.authManager.getApiKeyForProvider(providerId);
 		if (!apiKey) {
 			throw new Error(t('auth.notConfigured') + ` (provider: ${providerId})`);
@@ -289,14 +291,17 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			pruneReasoningCache(this.reasoningCache, true);
 		}
 
-		// Vision: if native vision → keep images as-is; else use Copilot proxy
+		// Vision: native vision → keep images; enhanced → proxy; neither → strip
 		const resolvedMessages = nativeVision
 			? messages
-			: await resolveImageMessages(messages, token, () => this.vision.get());
+			: enhancedVision
+				? await resolveImageMessages(messages, token, () => this.vision.get())
+				: messages;
 		const deepseekMessages = convertMessages(
 			resolvedMessages,
 			isThinkingModel,
 			this.reasoningCache,
+			nativeVision,
 		);
 		const canUseTools = modelDef?.capabilities.toolCalling ?? userModelDef?.toolCalling ?? true;
 		const tools = canUseTools ? convertTools(options.tools) : undefined;

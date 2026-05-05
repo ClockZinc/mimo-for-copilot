@@ -11,6 +11,7 @@ export function convertMessages(
 	messages: readonly vscode.LanguageModelChatRequestMessage[],
 	isThinkingModel: boolean,
 	reasoningCache: Map<string, ReasoningEntry>,
+	nativeVision: boolean,
 ): DeepSeekMessage[] {
 	const result: DeepSeekMessage[] = [];
 
@@ -26,7 +27,10 @@ export function convertMessages(
 			if (part instanceof vscode.LanguageModelTextPart) {
 				content += part.value;
 			} else if (part instanceof vscode.LanguageModelDataPart) {
-				imageParts.push(part);
+				// Only pass images through if model supports native vision
+				if (nativeVision) {
+					imageParts.push(part);
+				}
 			} else if (part instanceof vscode.LanguageModelToolCallPart) {
 				toolCalls.push({
 					id: part.callId,
