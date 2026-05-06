@@ -92,6 +92,10 @@
       {
         "command": "mimo-copilot.forget",
         "title": "%mimo-copilot.command.forget%"
+      },
+      {
+        "command": "mimo-copilot.showMemoryStats",
+        "title": "%mimo-copilot.command.showMemoryStats%"
       }
     ],
     "walkthroughs": [

@@ -106,9 +106,10 @@ function parseFrontmatter(content: string): {
 export function formatMemoryManifest(memories: MemoryHeader[]): string {
 	return memories.map(m => {
 		const age = memoryAge(m.mtimeMs);
+		const weight = memoryWeight(m.mtimeMs);
 		const type = m.type ?? 'unknown';
 		const desc = m.description ?? 'no description';
-		return `- [${type}] ${m.filename} (${age}): ${desc}`;
+		return `- [${type}] ${m.filename} (${age}, w=${weight.toFixed(1)}): ${desc}`;
 	}).join('\n');
 }
 

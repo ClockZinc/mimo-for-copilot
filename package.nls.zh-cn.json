@@ -12,6 +12,7 @@
   "mimo-copilot.command.remember": "MiMo: 记住（保存记忆）",
   "mimo-copilot.command.showMemory": "MiMo: 查看记忆",
   "mimo-copilot.command.forget": "MiMo: 忘记（删除记忆）",
+  "mimo-copilot.command.showMemoryStats": "MiMo: 查看记忆统计",
   "mimo-copilot.config.agenticMemory.description": "启用 Agentic Memory 系统。使用轻量 Agent 模型从历史对话中注入相关记忆上下文。",
   "mimo-copilot.config.memory.recallModel": "记忆召回模型",
   "mimo-copilot.config.memory.recallModel.description": "用于记忆召回的轻量模型（默认: mimo-v2-pro）。",

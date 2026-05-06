@@ -12,10 +12,15 @@ import type {
  * No external dependencies — uses Node's built-in fetch.
  */
 export class DeepSeekClient {
+	private readonly skipStreamOptions: boolean;
+
 	constructor(
 		private readonly baseUrl: string,
 		private readonly apiKey: string,
-	) {}
+		options?: { skipStreamOptions?: boolean },
+	) {
+		this.skipStreamOptions = options?.skipStreamOptions ?? false;
+	}
 
 	/**
 	 * Stream a chat completion from the DeepSeek API.
@@ -33,11 +38,9 @@ export class DeepSeekClient {
 		});
 
 		try {
-			// Request usage stats in streaming responses so we can calibrate token counting.
-			const requestBody = {
-				...request,
-				stream_options: { include_usage: true },
-			};
+			const requestBody = this.skipStreamOptions
+				? { ...request }
+				: { ...request, stream_options: { include_usage: true } };
 
 			const url = `${this.baseUrl}/chat/completions`;
 

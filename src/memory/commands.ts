@@ -36,6 +36,13 @@ export function registerMemoryCommands(
 		}),
 	);
 
+	// /mimo-memory stats — 查看记忆统计
+	context.subscriptions.push(
+		vscode.commands.registerCommand('mimo-copilot.showMemoryStats', async () => {
+			await handleShowStats(memoryManager);
+		}),
+	);
+
 	logger.info('[Memory] Commands registered');
 }
 
@@ -225,4 +232,30 @@ function memoryAgeShort(mtimeMs: number): string {
 	if (days === 0) return 'today';
 	if (days === 1) return 'yesterday';
 	return `${days}d ago`;
+}
+
+/**
+ * 处理 /mimo-memory stats 命令 — 显示记忆统计面板
+ */
+async function handleShowStats(memoryManager: MemoryManager): Promise<void> {
+	const snapshot = await memoryManager.getStatsSnapshot();
+
+	const items: vscode.QuickPickItem[] = [
+		{ label: '📊 Memory Statistics', kind: vscode.QuickPickItemKind.Separator, description: '' },
+		{ label: `Cache Hit Rate`, description: `${(snapshot.cache_hit_rate * 100).toFixed(1)}% (${snapshot.cache_hits}/${snapshot.cache_total})` },
+		{ label: `Recall Latency P50`, description: `${snapshot.latency_p50.toFixed(0)}ms` },
+		{ label: `Recall Latency P95`, description: `${snapshot.latency_p95.toFixed(0)}ms` },
+		{ label: `Recall Latency P99`, description: `${snapshot.latency_p99.toFixed(0)}ms` },
+		{ label: `Injection Tokens P50`, description: `${snapshot.token_p50.toFixed(0)} tokens` },
+		{ label: `Injection Tokens P95`, description: `${snapshot.token_p95.toFixed(0)} tokens` },
+		{ label: `Total Recalls`, description: `${snapshot.total_recalls}` },
+		{ label: `Total Injections`, description: `${snapshot.total_injections}` },
+		{ label: '', kind: vscode.QuickPickItemKind.Separator, description: '' },
+		{ label: `User Memories`, description: `${snapshot.memory_count.user}` },
+		{ label: `Project Memories`, description: `${snapshot.memory_count.project}` },
+	];
+
+	await vscode.window.showQuickPick(items, {
+		placeHolder: `Last updated: ${new Date(snapshot.timestamp).toLocaleTimeString()}`,
+	});
 }

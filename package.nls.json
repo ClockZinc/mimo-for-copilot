@@ -12,6 +12,7 @@
   "mimo-copilot.command.remember": "MiMo: Remember (Save Memory)",
   "mimo-copilot.command.showMemory": "MiMo: Show Memories",
   "mimo-copilot.command.forget": "MiMo: Forget (Delete Memory)",
+  "mimo-copilot.command.showMemoryStats": "MiMo: Show Memory Statistics",
   "mimo-copilot.config.agenticMemory.description": "Enable agentic memory system. Injects relevant memories from previous conversations using a lightweight agent model.",
   "mimo-copilot.config.memory.recallModel": "Memory Recall Model",
   "mimo-copilot.config.memory.recallModel.description": "Lightweight model used for memory recall (default: mimo-v2-pro).",

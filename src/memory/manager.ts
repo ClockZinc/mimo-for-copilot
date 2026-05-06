@@ -14,6 +14,7 @@ import { findRelevantMemories, type RecallContext } from './recall';
 import { SessionMemory } from './sessionMemory';
 import { AutoDream } from './autoDream';
 import { AutoExtract } from './autoExtract';
+import { MemoryStats } from './stats';
 import { logger } from '../logger';
 
 /**
@@ -23,9 +24,10 @@ import { logger } from '../logger';
 class RecallCache {
 	private cache = new Map<string, { result: RecallResult; timestamp: number }>();
 	private readonly TTL = 60_000; // 60秒
+	private readonly MAX_SIZE = 50; // 最大缓存条目
 
-	get(query: string): RecallResult | null {
-		const key = this.fuzzyHash(query);
+	get(query: string, conversationSummary?: string): RecallResult | null {
+		const key = this.fuzzyHash(query, conversationSummary);
 		const entry = this.cache.get(key);
 		if (!entry) return null;
 		if (Date.now() - entry.timestamp > this.TTL) {
@@ -35,14 +37,21 @@ class RecallCache {
 		return entry.result;
 	}
 
-	set(query: string, result: RecallResult): void {
-		const key = this.fuzzyHash(query);
+	set(query: string, result: RecallResult, conversationSummary?: string): void {
+		// LRU 淘汰：超过大小限制时删除最早的条目
+		if (this.cache.size >= this.MAX_SIZE) {
+			const oldest = this.cache.keys().next().value;
+			if (oldest) this.cache.delete(oldest);
+		}
+		const key = this.fuzzyHash(query, conversationSummary);
 		this.cache.set(key, { result, timestamp: Date.now() });
 	}
 
-	private fuzzyHash(query: string): string {
-		// 取前 50 字符 + 长度作为模糊 key
-		return `${query.substring(0, 50).toLowerCase().trim()}_${query.length}`;
+	private fuzzyHash(query: string, conversationSummary?: string): string {
+		// 取前 50 字符 + 长度 + 对话摘要前 20 字符作为模糊 key
+		const queryPart = query.substring(0, 50).toLowerCase().trim();
+		const ctxPart = conversationSummary?.substring(0, 20).toLowerCase().trim() ?? '';
+		return `${queryPart}_${ctxPart}_${query.length}`;
 	}
 }
 
@@ -61,6 +70,9 @@ export class MemoryManager {
 
 	/** 召回缓存 */
 	private recallCache = new RecallCache();
+
+	/** 可观测性统计 */
+	private stats = new MemoryStats();
 
 	/** 子系统 */
 	private sessionMemory: SessionMemory | null = null;
@@ -159,6 +171,8 @@ export class MemoryManager {
 	/**
 	 * 核心方法：构建记忆上下文注入文本
 	 * 在 provideLanguageModelChatResponse 中调用
+	 * 
+	 * 优化：先查召回缓存（60s TTL），缓存未命中再执行 LLM 召回
 	 */
 	async buildMemoryContext(ctx: RecallContext): Promise<string | null> {
 		if (!this.recallConfig) {
@@ -167,6 +181,17 @@ export class MemoryManager {
 		}
 
 		try {
+			// 先查缓存（同一会话内相似查询复用结果）
+			const cached = this.recallCache.get(ctx.query, ctx.conversationSummary);
+			if (cached && cached.selected.length > 0) {
+				logger.info(`[Memory] Cache hit: ${cached.selected.length} memories`);
+				this.lastRecallResult = cached;
+				this.stats.recordCache(true);
+				this.stats.recordLatency(0); // 缓存命中，延迟为 0
+				return this.formatInjection(cached.selected);
+			}
+			this.stats.recordCache(false);
+
 			// 并发控制：如果已有召回在进行，复用结果
 			if (this.pendingRecall) {
 				logger.debug('[Memory] Recall already in progress, waiting...');
@@ -184,6 +209,12 @@ export class MemoryManager {
 			try {
 				const result = await recallPromise;
 				this.lastRecallResult = result;
+
+				// 写入缓存
+				this.recallCache.set(ctx.query, result, ctx.conversationSummary);
+
+				// 记录统计
+				this.stats.recordLatency(result.elapsed);
 
 				if (result.selected.length === 0) {
 					logger.debug('[Memory] No relevant memories found');
@@ -257,11 +288,13 @@ export class MemoryManager {
 			const blockTokens = estimateTokens(block);
 
 			if (totalTokens + blockTokens > MAX_INJECTION_TOKENS) {
-				// 截断最后一条
+				// 截断最后一条，保留闭合标签确保格式完整
 				const remaining = MAX_INJECTION_TOKENS - totalTokens;
-				if (remaining > 100) { // 至少 100 tokens 才值得注入
+				if (remaining > 100) {
 					const truncated = truncateToTokens(block, remaining);
-					blocks.push(truncated + '\n...(truncated)');
+					// 确保截断后仍有 [/MEMORY] 闭合标签
+					const withoutClose = truncated.replace(/\[\/MEMORY\]\s*$/, '');
+					blocks.push(withoutClose + '\n[/MEMORY]\n...(truncated)');
 					totalTokens += remaining;
 				}
 				break;
@@ -272,6 +305,12 @@ export class MemoryManager {
 		}
 
 		if (blocks.length === 0) return '';
+
+		// 记录注入 token 使用量
+		this.stats.recordTokens(totalTokens);
+
+		// 定期写入统计文件
+		this.stats.flush().catch(() => {});
 
 		// 会话记忆摘要（也计入预算）
 		const sessionSummary = this.getSessionSummary();
@@ -404,6 +443,14 @@ export class MemoryManager {
 	}
 
 	/**
+	 * 获取统计快照（用于 /mimo-memory stats 命令）
+	 */
+	async getStatsSnapshot(): Promise<import('./stats').MemoryStatsSnapshot> {
+		const { user, project } = await this.listMemories();
+		return this.stats.getSnapshot(user.length, project.length);
+	}
+
+	/**
 	 * 清除缓存
 	 */
 	clearCache(): void {
@@ -412,17 +459,28 @@ export class MemoryManager {
 }
 
 /**
- * Token 估算（粗略：1 token ≈ 4 字符英文 / 1.5 字符中文）
+ * Token 估算（分档：CJK 1.5/char，标点 1.0/char，英文 0.25/char）
  */
 function estimateTokens(text: string): number {
 	let count = 0;
 	for (let i = 0; i < text.length; i++) {
 		const code = text.charCodeAt(i);
-		// CJK 字符按 1.5 token 估算
+		const char = text[i];
+		// CJK 字符：~1.5 token/char
 		if (code >= 0x4e00 && code <= 0x9fff) {
 			count += 1.5;
-		} else {
-			count += 0.25; // 英文约 4 字符/token
+		}
+		// 日文假名/韩文：~1.0 token/char
+		else if ((code >= 0x3040 && code <= 0x30ff) || (code >= 0xac00 && code <= 0xd7af)) {
+			count += 1.0;
+		}
+		// 标点和符号：~1.0 token/char
+		else if ('{}[]()=;:,.!?<>|/\\\'"`~@#$%^&*+-'.includes(char)) {
+			count += 1.0;
+		}
+		// 英文/数字/空格：~0.25 token/char（4 chars/token）
+		else {
+			count += 0.25;
 		}
 	}
 	return Math.ceil(count);

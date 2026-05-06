@@ -67,6 +67,9 @@ export class AutoDream {
 	shouldDream(): boolean {
 		if (this.isRunning) return false;
 
+		// 每次检查时重新读取配置（支持热更新）
+		this.gateConfig = getDreamGateConfig();
+
 		const now = Date.now();
 		const timeSinceLastDream = now - this.lastDreamTime;
 
@@ -131,7 +134,19 @@ export class AutoDream {
 
 			const data = await response.json() as any;
 			const content = data.choices?.[0]?.message?.content ?? '{}';
-			const parsed = JSON.parse(content);
+
+			// JSON 解析容错：先尝试标准解析，失败后提取 code block
+			let parsed: any;
+			try {
+				parsed = JSON.parse(content);
+			} catch {
+				const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+				if (jsonMatch) {
+					parsed = JSON.parse(jsonMatch[1]);
+				} else {
+					throw new Error(`Failed to parse Dream response: ${content.substring(0, 200)}`);
+				}
+			}
 			const actions = parsed.actions ?? [];
 
 			// 4. 执行建议的操作（目前只记录，不自动执行）
@@ -151,6 +166,11 @@ export class AutoDream {
 				}
 			}
 
+			// 4. 将建议写入文件供用户审核
+			if (actionCount > 0) {
+				await this.writeSuggestionsFile(actions, parsed.summary || 'Analysis complete');
+			}
+
 			this.lastDreamTime = Date.now();
 			this.sessionCount = 0;
 
@@ -166,6 +186,63 @@ export class AutoDream {
 			return { actions: 0, summary: `Error: ${e}` };
 		} finally {
 			this.isRunning = false;
+		}
+	}
+
+	/**
+	 * 将建议写入文件供用户审核
+	 */
+	private async writeSuggestionsFile(actions: any[], summary: string): Promise<void> {
+		try {
+			const suggestionsDir = this.memoryDirs[0];
+			const filePath = path.join(suggestionsDir, '_dream-suggestions.md');
+			const today = new Date().toISOString().split('T')[0];
+
+			// 追加模式（不覆盖历史建议）
+			let existingContent = '';
+			try {
+				existingContent = await fs.readFile(filePath, 'utf-8');
+			} catch { /* 文件不存在 */ }
+
+			// 检查是否已有当日 section
+			if (existingContent.includes(`# ${today}`)) {
+				logger.info('[AutoDream] Today\'s suggestions already exist, skipping');
+				return;
+			}
+
+			const newSection = [
+				'',
+				`# ${today}`,
+				'',
+				`Summary: ${summary}`,
+				'',
+				'## Suggested Actions',
+				'',
+			];
+
+			for (const action of actions) {
+				if (action.action === 'merge') {
+					newSection.push(`### Merge`);
+					newSection.push(`- Files: ${(action.files || []).join(' + ')}`);
+					newSection.push(`- Reason: ${action.reason || 'Overlapping content'}`);
+					newSection.push('');
+				} else if (action.action === 'delete') {
+					newSection.push(`### Delete`);
+					newSection.push(`- Files: ${(action.files || []).join(', ')}`);
+					newSection.push(`- Reason: ${action.reason || 'Stale or outdated'}`);
+					newSection.push('');
+				} else if (action.action === 'update') {
+					newSection.push(`### Update`);
+					newSection.push(`- Files: ${(action.files || []).join(', ')}`);
+					newSection.push(`- Suggestion: ${action.suggestion || 'Update content'}`);
+					newSection.push('');
+				}
+			}
+
+			await fs.writeFile(filePath, existingContent + newSection.join('\n'), 'utf-8');
+			logger.info(`[AutoDream] Suggestions appended to ${filePath}`);
+		} catch (e) {
+			logger.warn('[AutoDream] Failed to write suggestions file:', e);
 		}
 	}
 }

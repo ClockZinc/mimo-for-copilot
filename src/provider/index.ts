@@ -321,7 +321,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			throw new Error(t('auth.notConfigured') + ` (provider: ${providerId})`);
 		}
 
-		const client = new DeepSeekClient(baseUrl, apiKey);
+		const client = new DeepSeekClient(baseUrl, apiKey, { skipStreamOptions: isMiMo });
 
 		// Heuristic: detect conversation start to clear stale cache.
 		if (messages.length <= 2) {

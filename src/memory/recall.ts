@@ -27,6 +27,7 @@ Return a JSON object with a "selected_memories" array containing filenames (up t
 - If a list of recently-used tools is provided, do not select memories that are usage reference or API documentation for those tools. DO still select memories containing warnings, gotchas, or known issues about those tools.
 - Memory records can become stale over time. Use memory age as context for what was true at a given point in time. Prefer recent memories over old ones when both are relevant.
 - IMPORTANT: Memories and queries may be in Chinese or mixed languages. Judge relevance by semantic meaning, not by language. Chinese and English content about the same topic should be treated as equivalent.
+- Prefer memories with higher weight (more recent). Weight is shown in the manifest as (X.Y). A weight of 1.0 means today, 0.1 means very old.
 - Return ONLY valid JSON, no other text.`;
 
 /** 召回请求的上下文信息 */
@@ -203,8 +204,8 @@ function tokenize(text: string): string[] {
 	const lower = text.toLowerCase();
 	const tokens: string[] = [];
 
-	// 英文单词
-	const enWords = lower.match(/[a-z_]{3,}/g);
+	// 英文单词（≥2字符，支持 go/js 等缩写）
+	const enWords = lower.match(/[a-z_]{2,}/g);
 	if (enWords) tokens.push(...enWords);
 
 	// 中文 bigram（相邻两字一组）
