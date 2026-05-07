@@ -2,6 +2,13 @@ import vscode from 'vscode';
 import { CONFIG_SECTION, DEFAULT_PROVIDERS } from './consts';
 import type { ProviderDefinition, UserModelConfig } from './types';
 
+const MODEL_PROVIDER_COMPATIBILITY: Record<string, string[]> = {
+	'mimo-v2.5-pro': ['mimo', 'mimo-tp'],
+	'mimo-v2.5': ['mimo', 'mimo-tp'],
+	'mimo-v2-pro': ['mimo', 'mimo-tp'],
+	'mimo-v2-flash': ['mimo'],
+};
+
 /**
  * Get DeepSeek API base URL from settings.
  * Falls back to the official endpoint when not configured.
@@ -50,7 +57,15 @@ export function getProviders(): ProviderDefinition[] {
 		merged.set(dp.id, dp);
 	}
 	for (const up of userProviders) {
-		merged.set(up.id, up);
+		// Migrate old known MiMo Token Plan URL from SGP to CN
+		if (
+			up.id === 'mimo-tp' &&
+			up.baseUrl === 'https://token-plan-sgp.xiaomimimo.com/v1'
+		) {
+			merged.set(up.id, { ...up, baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1' });
+		} else {
+			merged.set(up.id, up);
+		}
 	}
 	return [...merged.values()];
 }
@@ -72,6 +87,41 @@ export function getProviderById(providerId: string): ProviderDefinition | undefi
 	return getProviders().find((p) => p.id === providerId);
 }
 
+export function isProviderSupportedForModel(modelId: string | undefined, providerId: string): boolean {
+	if (!modelId) {
+		return true;
+	}
+	const supportedProviders = MODEL_PROVIDER_COMPATIBILITY[modelId];
+	return !supportedProviders || supportedProviders.includes(providerId);
+}
+
+export function getCandidateProvidersForModel(
+	modelId: string | undefined,
+	preferredProviderId: string | undefined,
+): string[] {
+	if (!preferredProviderId || preferredProviderId === 'default') {
+		return preferredProviderId ? [preferredProviderId] : [];
+	}
+
+	const candidates = new Set<string>();
+	if (isProviderSupportedForModel(modelId, preferredProviderId)) {
+		candidates.add(preferredProviderId);
+	}
+	for (const sibling of getRelatedProviders(preferredProviderId)) {
+		if (isProviderSupportedForModel(modelId, sibling)) {
+			candidates.add(sibling);
+		}
+	}
+	if (candidates.size === 0) {
+		for (const provider of getProviders()) {
+			if (isProviderSupportedForModel(modelId, provider.id)) {
+				candidates.add(provider.id);
+			}
+		}
+	}
+	return [...candidates];
+}
+
 /**
  * Resolve the effective base URL and provider ID for a model.
  *
@@ -81,28 +131,28 @@ export function getProviderById(providerId: string): ProviderDefinition | undefi
 export function resolveProviderForModel(
 	modelProviderId: string | undefined,
 	providerKeyStatus?: Map<string, boolean>,
+	modelId?: string,
 ): { baseUrl: string; providerId: string } {
 	const globalBaseUrl = getBaseUrl();
 	if (!modelProviderId || modelProviderId === 'default') {
 		return { baseUrl: globalBaseUrl, providerId: 'default' };
 	}
-	const provider = getProviderById(modelProviderId);
-	if (provider) {
-		// If this provider has no key but a sibling does, use the sibling
-		if (providerKeyStatus && !providerKeyStatus.get(modelProviderId)) {
-			for (const sibling of getRelatedProviders(modelProviderId)) {
-				if (providerKeyStatus.get(sibling)) {
-					const sib = getProviderById(sibling);
-					if (sib) { return { baseUrl: sib.baseUrl, providerId: sib.id }; }
+	const candidates = getCandidateProvidersForModel(modelId, modelProviderId);
+	if (providerKeyStatus) {
+		for (const candidateProviderId of candidates) {
+			if (providerKeyStatus.get(candidateProviderId)) {
+				const candidateProvider = getProviderById(candidateProviderId);
+				if (candidateProvider) {
+					return { baseUrl: candidateProvider.baseUrl, providerId: candidateProvider.id };
 				}
 			}
 		}
-		return { baseUrl: provider.baseUrl, providerId: provider.id };
 	}
-	// Provider not in config — try siblings
-	for (const sibling of getRelatedProviders(modelProviderId)) {
-		const sib = getProviderById(sibling);
-		if (sib) { return { baseUrl: sib.baseUrl, providerId: sib.id }; }
+	for (const candidateProviderId of candidates) {
+		const candidateProvider = getProviderById(candidateProviderId);
+		if (candidateProvider) {
+			return { baseUrl: candidateProvider.baseUrl, providerId: candidateProvider.id };
+		}
 	}
 	return { baseUrl: globalBaseUrl, providerId: modelProviderId };
 }

@@ -94,13 +94,12 @@ export class MemoryManager {
 		if (apiKey) {
 			// 从配置读取召回模型，默认用 mimo-v2-pro
 			const config = vscode.workspace.getConfiguration('mimo-copilot');
-			// 默认用第一个 isUserSelectable=false 的模型（即 agent 模型）
-			const agentModel = MODELS.find(m => m.isUserSelectable === false);
+			const agentModel = MODELS.find(m => m.id === 'mimo-v2-pro');
 			const recallModel = config.get<string>('memory.recallModel', agentModel?.id ?? 'mimo-v2-pro');
 
 			this.recallConfig = {
 				model: recallModel,
-				baseUrl: baseUrl || 'https://token-plan-sgp.xiaomimimo.com/v1',
+				baseUrl: baseUrl || 'https://token-plan-cn.xiaomimimo.com/v1',
 				apiKey,
 			};
 

@@ -27,8 +27,10 @@ export function convertMessages(
 			if (part instanceof vscode.LanguageModelTextPart) {
 				content += part.value;
 			} else if (part instanceof vscode.LanguageModelDataPart) {
-				// Only pass images through if model supports native vision
-				if (nativeVision) {
+				// Only pass actual image attachments through when native vision is enabled.
+				// VS Code may include non-image DataParts in requests; sending those as
+				// `image_url` content breaks MiMo's OpenAI-compatible endpoint.
+				if (nativeVision && part.mimeType.startsWith('image/')) {
 					imageParts.push(part);
 				}
 			} else if (part instanceof vscode.LanguageModelToolCallPart) {

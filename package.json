@@ -3,7 +3,7 @@
   "displayName": "MiMo for Copilot Chat",
   "description": "Use MiMo V2.5 Pro & DeepSeek V4 models in Copilot Chat. Vision, thinking mode, agent tools. Multi-provider BYOK.",
   "icon": "resources/mimo.png",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "publisher": "clockzincbit",
   "license": "MIT",
   "repository": {
@@ -176,7 +176,7 @@
         },
         "mimo-copilot.hiddenModels": {
           "type": "array",
-          "default": [],
+          "default": ["mimo-v2-pro", "mimo-v2-flash"],
           "items": { "type": "string" },
           "description": "%mimo-copilot.config.hiddenModels.description%"
         },
@@ -194,7 +194,7 @@
         "mimo-copilot.memory.recallModel": {
           "type": "string",
           "default": "mimo-v2-pro",
-          "enum": ["mimo-v2-pro", "mimo-v2.5", "mimo-v2.5-pro"],
+          "enum": ["mimo-v2-pro", "mimo-v2-flash", "mimo-v2.5", "mimo-v2.5-pro"],
           "description": "%mimo-copilot.config.memory.recallModel.description%"
         },
         "mimo-copilot.memory.dreamIntervalHours": {
@@ -215,7 +215,9 @@
             "deepseek-v4-flash": "deepseek-v4-flash",
             "deepseek-v4-pro": "deepseek-v4-pro",
             "mimo-v2.5-pro": "mimo-v2.5-pro",
-            "mimo-v2.5": "mimo-v2.5"
+            "mimo-v2.5": "mimo-v2.5",
+            "mimo-v2-pro": "mimo-v2-pro",
+            "mimo-v2-flash": "mimo-v2-flash"
           },
           "description": "%mimo-copilot.config.modelIdOverrides.description%",
           "additionalProperties": false,
@@ -235,6 +237,14 @@
             "mimo-v2.5": {
               "type": "string",
               "description": "%mimo-copilot.config.modelIdOverrides.mimo-v2.5.description%"
+            },
+            "mimo-v2-pro": {
+              "type": "string",
+              "description": "API model ID for MiMo V2 Pro"
+            },
+            "mimo-v2-flash": {
+              "type": "string",
+              "description": "API model ID for MiMo V2 Flash"
             }
           }
         },

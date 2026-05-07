@@ -7,6 +7,8 @@
 	let providers = [];
 	let providerKeys = {};
 	let models = [];
+	let memorySettings = { enabled: false, recallModel: 'mimo-v2-pro', modelOptions: [] };
+	let strings = {};
 	let editingProviderId = null;
 	let editingModelId = null;
 
@@ -19,6 +21,9 @@
 	const addModelBtn = document.getElementById('addModelBtn');
 	const fetchedModelsSection = document.getElementById('fetchedModels');
 	const fetchedModelsList = document.getElementById('fetchedModelsList');
+	const memoryEnabled = document.getElementById('memoryEnabled');
+	const memoryRecallModel = document.getElementById('memoryRecallModel');
+	const memorySaveBtn = document.getElementById('memorySaveBtn');
 
 	function post(msg) { vscode.postMessage(msg); }
 
@@ -30,6 +35,9 @@
 				providers = msg.payload.providers || [];
 				providerKeys = msg.payload.providerKeys || {};
 				models = msg.payload.models || [];
+					memorySettings = msg.payload.memorySettings || memorySettings;
+					strings = msg.payload.strings || strings;
+					renderMemorySettings();
 				renderProviders();
 				renderModels();
 				break;
@@ -37,7 +45,7 @@
 				renderFetchedModels(msg.providerId, msg.models);
 				break;
 			case 'modelsFetchError':
-				alert('Failed to fetch models: ' + msg.error);
+				alert(format(strings.providersFetchFailed, msg.error));
 				break;
 			case 'confirmResponse':
 				break;
@@ -46,11 +54,46 @@
 
 	post({ type: 'requestInit' });
 
+	function format(text) {
+		var args = Array.prototype.slice.call(arguments, 1);
+		return String(text || '').replace(/\{(\d+)\}/g, function (_, index) {
+			var value = args[Number(index)];
+			return value === undefined ? '' : String(value);
+		});
+	}
+
+	function renderMemorySettings() {
+		memoryEnabled.checked = !!memorySettings.enabled;
+		memoryRecallModel.innerHTML = '';
+		var options = memorySettings.modelOptions || [];
+		for (var i = 0; i < options.length; i++) {
+			var option = document.createElement('option');
+			option.value = options[i].id;
+			option.textContent = options[i].name + ' (' + options[i].id + ')';
+			memoryRecallModel.appendChild(option);
+		}
+		if (!options.length) {
+			var fallback = document.createElement('option');
+			fallback.value = 'mimo-v2-pro';
+			fallback.textContent = 'MiMo V2 Pro (mimo-v2-pro)';
+			memoryRecallModel.appendChild(fallback);
+		}
+		memoryRecallModel.value = memorySettings.recallModel || 'mimo-v2-pro';
+	}
+
+	memorySaveBtn.addEventListener('click', function () {
+		post({
+			type: 'saveMemorySettings',
+			enabled: !!memoryEnabled.checked,
+			recallModel: memoryRecallModel.value || 'mimo-v2-pro',
+		});
+	});
+
 	// ===== PROVIDER RENDER =====
 
 	function renderProviders() {
 		if (!providers.length) {
-			providerList.innerHTML = '<div class="empty">No providers configured.</div>';
+			providerList.innerHTML = '<div class="empty">' + esc(strings.providersEmpty) + '</div>';
 			return;
 		}
 		providerList.innerHTML = '';
@@ -62,11 +105,11 @@
 			card.innerHTML =
 				'<div class="card-info">' +
 					'<div class="name">' + esc(p.name) + ' <span style="color:var(--vscode-descriptionForeground);font-size:11px">(' + esc(p.id) + ')</span></div>' +
-					'<div class="meta">' + esc(p.baseUrl) + (hasKey ? ' · API Key ✓' : ' · No API Key') + '</div>' +
+					'<div class="meta">' + esc(p.baseUrl) + (hasKey ? strings.providersApiKeyPresent : strings.providersApiKeyMissing) + '</div>' +
 				'</div>' +
 				'<div class="card-actions">' +
-					'<button class="btn secondary small edit-p" data-id="' + esc(p.id) + '">Edit</button>' +
-					'<button class="btn danger small del-p" data-id="' + esc(p.id) + '">Delete</button>' +
+					'<button class="btn secondary small edit-p" data-id="' + esc(p.id) + '">' + esc(strings.providersEditButton) + '</button>' +
+					'<button class="btn danger small del-p" data-id="' + esc(p.id) + '">' + esc(strings.providersDeleteButton) + '</button>' +
 				'</div>';
 			providerList.appendChild(card);
 		}
@@ -82,7 +125,7 @@
 
 	function renderModels() {
 		if (!models.length) {
-			modelList.innerHTML = '<div class="empty">No models configured. Click "+ Add Model" to add one.</div>';
+			modelList.innerHTML = '<div class="empty">' + esc(strings.modelsEmpty) + '</div>';
 			return;
 		}
 		modelList.innerHTML = '';
@@ -91,31 +134,32 @@
 			var card = document.createElement('div');
 			card.className = 'card' + (m.hidden ? ' card-hidden' : '');
 			var badges = [];
-			if (m.builtin) badges.push('⭐ Built-in');
-			if (m.hidden) badges.push('🚫 Hidden');
-			if (m.toolCalling) badges.push('🔧 Tools');
-			if (m.nativeVision) badges.push('👁 Native Vision');
-			if (m.enhancedVision) badges.push('🔍 Enhanced Vision');
-			if (m.thinking) badges.push('🧠 Thinking');
+			if (m.builtin) badges.push(strings.modelsBadgeBuiltin);
+			if (m.hidden) badges.push(strings.modelsBadgeHidden);
+			if (m.toolCalling) badges.push(strings.modelsBadgeTools);
+			if (m.nativeVision) badges.push(strings.modelsBadgeNativeVision);
+			if (m.enhancedVision) badges.push(strings.modelsBadgeEnhancedVision);
+			if (m.thinking) badges.push(strings.modelsBadgeThinking);
 			var actions = '';
 			if (m.hidden) {
-				actions = '<button class="btn primary small show-m" data-id="' + esc(m.id) + '">Show</button>';
+				actions = '<button class="btn primary small show-m" data-id="' + esc(m.id) + '">' + esc(strings.modelsShowButton) + '</button>';
 			} else {
 				actions =
-					'<button class="btn secondary small edit-m" data-id="' + esc(m.id) + '">Edit</button>' +
-					'<button class="btn danger small del-m" data-id="' + esc(m.id) + '">' + (m.builtin ? 'Hide' : 'Delete') + '</button>';
+					'<button class="btn secondary small edit-m" data-id="' + esc(m.id) + '">' + esc(strings.modelsEditButton) + '</button>' +
+					'<button class="btn danger small del-m" data-id="' + esc(m.id) + '">' + esc(m.builtin ? strings.modelsHideButton : strings.modelsDeleteButton) + '</button>';
 			}
+			var metaParts = [
+				format(strings.modelsMetaProvider, m.providerId),
+				format(strings.modelsMetaContext, formatNum(m.maxInputTokens)),
+				format(strings.modelsMetaOutput, formatNum(m.maxOutputTokens))
+			];
+			if (m.temperature !== undefined && m.temperature !== null) metaParts.push(format(strings.modelsMetaTemp, m.temperature));
+			if (m.topP !== undefined && m.topP !== null) metaParts.push(format(strings.modelsMetaTopP, m.topP));
+			if (badges.length) metaParts.push(badges.join(' '));
 			card.innerHTML =
 				'<div class="card-info">' +
 					'<div class="name">' + esc(m.name) + ' <span style="color:var(--vscode-descriptionForeground);font-size:11px">(' + esc(m.id) + ')</span></div>' +
-					'<div class="meta">' +
-						'Provider: ' + esc(m.providerId) +
-						' · Context: ' + formatNum(m.maxInputTokens) +
-						' · Output: ' + formatNum(m.maxOutputTokens) +
-						(m.temperature !== undefined && m.temperature !== null ? ' · Temp: ' + m.temperature : '') +
-						(m.topP !== undefined && m.topP !== null ? ' · TopP: ' + m.topP : '') +
-						' · ' + badges.join(' ') +
-					'</div>' +
+					'<div class="meta">' + metaParts.join(' · ') + '</div>' +
 				'</div>' +
 				'<div class="card-actions">' + actions + '</div>';
 			modelList.appendChild(card);
@@ -142,21 +186,21 @@
 		fetchedModelsSection.style.display = 'none';
 		if (providerId) {
 			var p = providers.find(function (x) { return x.id === providerId; });
-			document.getElementById('pfTitle').textContent = 'Edit Provider: ' + (p ? p.name : providerId);
+			document.getElementById('pfTitle').textContent = format(strings.providersFormEditTitle, p ? p.name : providerId);
 			document.getElementById('pf-id').value = p ? p.id : '';
 			document.getElementById('pf-id').disabled = true;
 			document.getElementById('pf-name').value = p ? p.name : '';
 			document.getElementById('pf-baseUrl').value = p ? p.baseUrl : '';
 			document.getElementById('pf-apiKey').value = providerKeys[providerId] || '';
-			document.getElementById('pf-apiKey').placeholder = providerKeys[providerId] ? '•••••••••••••••••••• (keep to retain)' : 'sk-...';
+			document.getElementById('pf-apiKey').placeholder = providerKeys[providerId] ? strings.providersFormApiKeyRetainPlaceholder : strings.providersFormApiKeyPlaceholder;
 		} else {
-			document.getElementById('pfTitle').textContent = 'Add Provider';
+			document.getElementById('pfTitle').textContent = strings.providersFormAddTitle;
 			document.getElementById('pf-id').value = '';
 			document.getElementById('pf-id').disabled = false;
 			document.getElementById('pf-name').value = '';
 			document.getElementById('pf-baseUrl').value = '';
 			document.getElementById('pf-apiKey').value = '';
-			document.getElementById('pf-apiKey').placeholder = 'sk-...';
+			document.getElementById('pf-apiKey').placeholder = strings.providersFormApiKeyPlaceholder;
 		}
 	}
 
@@ -165,9 +209,9 @@
 		var name = document.getElementById('pf-name').value.trim();
 		var baseUrl = document.getElementById('pf-baseUrl').value.trim();
 		var apiKey = document.getElementById('pf-apiKey').value;
-		if (!id) { alert('Provider ID is required'); return; }
-		if (!name) { alert('Display Name is required'); return; }
-		if (!baseUrl) { alert('Base URL is required'); return; }
+		if (!id) { alert(strings.providersIdRequired); return; }
+		if (!name) { alert(strings.providersNameRequired); return; }
+		if (!baseUrl) { alert(strings.providersBaseUrlRequired); return; }
 		post({
 			type: editingProviderId ? 'updateProvider' : 'addProvider',
 			provider: { id: id, name: name, baseUrl: baseUrl },
@@ -191,15 +235,15 @@
 		var baseUrl = document.getElementById('pf-baseUrl').value.trim();
 		var apiKey = document.getElementById('pf-apiKey').value;
 		var providerId = document.getElementById('pf-id').value.trim();
-		if (!baseUrl) { alert('Base URL is required'); return; }
-		if (!apiKey) { alert('API Key is required to fetch models'); return; }
+		if (!baseUrl) { alert(strings.providersBaseUrlRequired); return; }
+		if (!apiKey) { alert(strings.providersFetchApiKeyRequired); return; }
 		post({ type: 'fetchModels', providerId: providerId, baseUrl: baseUrl, apiKey: apiKey });
 	});
 
 	function renderFetchedModels(providerId, fetchedModels) {
 		fetchedModelsSection.style.display = 'block';
 		if (!fetchedModels.length) {
-			fetchedModelsList.innerHTML = '<div class="empty">No models found.</div>';
+			fetchedModelsList.innerHTML = '<div class="empty">' + esc(strings.providersNoModelsFound) + '</div>';
 			return;
 		}
 		fetchedModelsList.innerHTML = '';
@@ -208,7 +252,7 @@
 			var row = document.createElement('div');
 			row.className = 'model-row';
 			row.innerHTML = '<span class="model-id">' + esc(m.id) + '</span>' +
-				'<button class="btn small secondary use-model" data-id="' + esc(m.id) + '">Use as Model</button>';
+				'<button class="btn small secondary use-model" data-id="' + esc(m.id) + '">' + esc(strings.providersUseAsModel) + '</button>';
 			fetchedModelsList.appendChild(row);
 		}
 		fetchedModelsList.querySelectorAll('.use-model').forEach(function (b) {
@@ -222,7 +266,7 @@
 	}
 
 	function deleteProvider(id) {
-		post({ type: 'requestConfirm', id: 'dp-' + id, message: 'Delete provider "' + id + '" and its API key?' });
+		post({ type: 'requestConfirm', id: 'dp-' + id, message: format(strings.providersDeleteConfirm, id) });
 		var handler = function (e) {
 			if (e.data.type === 'confirmResponse' && e.data.id === 'dp-' + id) {
 				window.removeEventListener('message', handler);
@@ -242,13 +286,13 @@
 		providerForm.style.display = 'none';
 		// Populate provider dropdown
 		var sel = document.getElementById('mf-providerId');
-		sel.innerHTML = '<option value="">Select Provider</option>';
+		sel.innerHTML = '<option value="">' + esc(strings.modelsFormProviderPlaceholder) + '</option>';
 		for (var i = 0; i < providers.length; i++) {
 			sel.innerHTML += '<option value="' + esc(providers[i].id) + '">' + esc(providers[i].name) + '</option>';
 		}
 		if (modelId) {
 			var m = models.find(function (x) { return x.id === modelId; });
-			document.getElementById('mfTitle').textContent = 'Edit Model: ' + (m ? m.name : modelId);
+			document.getElementById('mfTitle').textContent = format(strings.modelsFormEditTitle, m ? m.name : modelId);
 			document.getElementById('mf-id').value = m ? m.id : '';
 			document.getElementById('mf-id').disabled = true;
 			document.getElementById('mf-name').value = m ? m.name : '';
@@ -262,7 +306,7 @@
 			document.getElementById('mf-enhancedVision').value = m ? String(!!m.enhancedVision) : 'true';
 			document.getElementById('mf-thinking').value = m ? String(!!m.thinking) : 'true';
 		} else {
-			document.getElementById('mfTitle').textContent = 'Add Model';
+			document.getElementById('mfTitle').textContent = strings.modelsFormAddTitle;
 			document.getElementById('mf-id').value = '';
 			document.getElementById('mf-id').disabled = false;
 			document.getElementById('mf-name').value = '';
@@ -286,11 +330,11 @@
 		var maxOut = parseInt(document.getElementById('mf-maxOutputTokens').value, 10);
 		var temp = parseFloat(document.getElementById('mf-temperature').value);
 		var topP = parseFloat(document.getElementById('mf-topP').value);
-		if (!id) { alert('Model ID is required'); return; }
-		if (!name) { alert('Display Name is required'); return; }
-		if (!providerId) { alert('Provider is required'); return; }
-		if (isNaN(maxIn) || maxIn <= 0) { alert('Context Window is required'); return; }
-		if (isNaN(maxOut) || maxOut <= 0) { alert('Max Output Tokens is required'); return; }
+		if (!id) { alert(strings.modelsIdRequired); return; }
+		if (!name) { alert(strings.modelsNameRequired); return; }
+		if (!providerId) { alert(strings.modelsProviderRequired); return; }
+		if (isNaN(maxIn) || maxIn <= 0) { alert(strings.modelsMaxInputRequired); return; }
+		if (isNaN(maxOut) || maxOut <= 0) { alert(strings.modelsMaxOutputRequired); return; }
 		var model = {
 			id: id,
 			name: name,
@@ -321,7 +365,7 @@
 	function deleteModel(id) {
 		var m = models.find(function (x) { return x.id === id; });
 		var isBuiltin = m && m.builtin;
-		var msg = isBuiltin ? 'Hide built-in model "' + id + '" from the model picker?' : 'Delete model "' + id + '"?';
+		var msg = isBuiltin ? format(strings.modelsHideConfirm, id) : format(strings.modelsDeleteConfirm, id);
 		post({ type: 'requestConfirm', id: 'dm-' + id, message: msg });
 		var handler = function (e) {
 			if (e.data.type === 'confirmResponse' && e.data.id === 'dm-' + id) {

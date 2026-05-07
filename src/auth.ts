@@ -165,18 +165,34 @@ export async function updateMiMoModelProviders(providerId: string): Promise<void
 
 	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 	const models = config.get<Array<{ id: string; providerId?: string }>>('models') ?? [];
-	const BUILTIN_MIMO_MODELS = ['mimo-v2.5-pro', 'mimo-v2.5'];
+	const TOKEN_PLAN_SUPPORTED_MIMO_MODELS = ['mimo-v2.5-pro', 'mimo-v2.5', 'mimo-v2-pro'];
+	const DIRECT_ONLY_MIMO_MODELS = ['mimo-v2-flash'];
 	let changed = false;
 	for (const m of models) {
-		if (BUILTIN_MIMO_MODELS.includes(m.id) && m.providerId !== providerId) {
+		if (providerId === 'mimo-tp') {
+			if (TOKEN_PLAN_SUPPORTED_MIMO_MODELS.includes(m.id) && m.providerId !== providerId) {
+				m.providerId = providerId;
+				changed = true;
+			}
+			if (DIRECT_ONLY_MIMO_MODELS.includes(m.id) && m.providerId !== 'mimo') {
+				m.providerId = 'mimo';
+				changed = true;
+			}
+		} else if ([...TOKEN_PLAN_SUPPORTED_MIMO_MODELS, ...DIRECT_ONLY_MIMO_MODELS].includes(m.id) && m.providerId !== providerId) {
 			m.providerId = providerId;
 			changed = true;
 		}
 	}
 	// Create overrides for MiMo models that don't exist in user config yet
-	for (const modelId of BUILTIN_MIMO_MODELS) {
+	for (const modelId of TOKEN_PLAN_SUPPORTED_MIMO_MODELS) {
 		if (!models.some((m) => m.id === modelId)) {
 			models.push({ id: modelId, providerId });
+			changed = true;
+		}
+	}
+	for (const modelId of DIRECT_ONLY_MIMO_MODELS) {
+		if (!models.some((m) => m.id === modelId)) {
+			models.push({ id: modelId, providerId: 'mimo' });
 			changed = true;
 		}
 	}

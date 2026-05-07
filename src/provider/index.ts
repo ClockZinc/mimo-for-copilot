@@ -5,6 +5,8 @@ import {
 	getApiModelId,
 	getMaxTokens,
 	getRelatedProviders,
+	getCandidateProvidersForModel,
+	isProviderSupportedForModel,
 	resolveProviderForModel,
 	getUserModels,
 	getHiddenModels,
@@ -208,32 +210,33 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 
 		// Only the actual global key (mimo-copilot.apiKey) counts as global fallback
 		const hasGlobalKey = !!(await this.authManager.getApiKey());
+		const hasDeepSeekKey = !!providerKeyStatus.get('deepseek') || hasGlobalKey;
 
-		function hasKeyForModel(providerId: string | undefined): boolean {
+		function hasKeyForModel(modelId: string, providerId: string | undefined): boolean {
 			if (!providerId || providerId === 'default') {
 				return hasGlobalKey;
 			}
-			// Check this provider's key first
-			if (providerKeyStatus.get(providerId)) { return true; }
-			// Cascade: mimo ↔ mimo-tp
-			for (const sibling of getRelatedProviders(providerId)) {
-				if (providerKeyStatus.get(sibling)) { return true; }
+			for (const candidateProviderId of getCandidateProvidersForModel(modelId, providerId)) {
+				if (providerKeyStatus.get(candidateProviderId)) { return true; }
 			}
 			// Fall back to global key only
 			return hasGlobalKey;
 		}
 
-		function getEffectiveProviderId(modelProviderId: string | undefined): string {
+		function getEffectiveProviderId(modelId: string, modelProviderId: string | undefined): string {
 			if (!modelProviderId || modelProviderId === 'default') { return 'default'; }
-			if (providerKeyStatus.get(modelProviderId)) { return modelProviderId; }
-			for (const sibling of getRelatedProviders(modelProviderId)) {
-				if (providerKeyStatus.get(sibling)) { return sibling; }
+			for (const candidateProviderId of getCandidateProvidersForModel(modelId, modelProviderId)) {
+				if (providerKeyStatus.get(candidateProviderId)) { return candidateProviderId; }
 			}
-			return modelProviderId;
+			const fallbackCandidate = getCandidateProvidersForModel(modelId, modelProviderId)[0];
+			return fallbackCandidate ?? modelProviderId;
 		}
 
-		const builtinInfos = MODELS.filter((model) => !hiddenModels.includes(model.id)).map((model) =>
-			toChatInfo(model, hasKeyForModel(model.providerId), getEffectiveProviderId(model.providerId)),
+		const builtinInfos = MODELS
+			.filter((model) => !hiddenModels.includes(model.id))
+			.filter((model) => model.family !== 'deepseek' || hasDeepSeekKey)
+			.map((model) =>
+			toChatInfo(model, hasKeyForModel(model.id, model.providerId), getEffectiveProviderId(model.id, model.providerId)),
 		);
 
 		const userModels = getUserModels();
@@ -253,8 +256,9 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		});
 		const userInfos: ModelPickerChatInformation[] = userModels
 			.filter((m) => !hiddenModels.includes(m.id) && !MODELS.some((bm) => bm.id === m.id))
+			.filter((m) => m.providerId !== 'deepseek' || hasDeepSeekKey)
 			.map((m) => {
-				const hasKey = hasKeyForModel(m.providerId);
+				const hasKey = hasKeyForModel(m.id, m.providerId);
 				return {
 					id: m.id,
 					name: m.name,
@@ -313,7 +317,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			}
 		}
 		logger.debug(`[Request] providerKeyStatus: ${JSON.stringify(Object.fromEntries(providerKeyStatus))}`);
-		const { baseUrl, providerId } = resolveProviderForModel(modelProviderId, providerKeyStatus);
+		const { baseUrl, providerId } = resolveProviderForModel(modelProviderId, providerKeyStatus, modelInfo.id);
 		logger.debug(`[Request] model=${modelInfo.id} inputProvider=${modelProviderId ?? '(none)'} → resolved provider=${providerId} baseUrl=${baseUrl}`);
 		const apiKey = await this.authManager.getApiKeyForProvider(providerId);
 		logger.debug(`[Request] apiKey found for provider=${providerId}: ${apiKey ? 'YES' : 'NO'}`);
@@ -321,7 +325,10 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			throw new Error(t('auth.notConfigured') + ` (provider: ${providerId})`);
 		}
 
-		const client = new DeepSeekClient(baseUrl, apiKey, { skipStreamOptions: isMiMo });
+		const client = new DeepSeekClient(baseUrl, apiKey, {
+			skipStreamOptions: isMiMo,
+			providerLabel: isMiMo ? 'MiMo' : 'DeepSeek',
+		});
 
 		// Heuristic: detect conversation start to clear stale cache.
 		if (messages.length <= 2) {

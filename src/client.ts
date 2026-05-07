@@ -13,17 +13,19 @@ import type {
  */
 export class DeepSeekClient {
 	private readonly skipStreamOptions: boolean;
+	private readonly providerLabel: string;
 
 	constructor(
 		private readonly baseUrl: string,
 		private readonly apiKey: string,
-		options?: { skipStreamOptions?: boolean },
+		options?: { skipStreamOptions?: boolean; providerLabel?: string },
 	) {
 		this.skipStreamOptions = options?.skipStreamOptions ?? false;
+		this.providerLabel = options?.providerLabel ?? 'API';
 	}
 
 	/**
-	 * Stream a chat completion from the DeepSeek API.
+	 * Stream a chat completion from the configured API endpoint.
 	 * Parses SSE chunks and dispatches callbacks for content, thinking, and tool calls.
 	 */
 	async streamChatCompletion(
@@ -66,7 +68,7 @@ export class DeepSeekClient {
 				} catch (err) {
 					lastError = err;
 					if (attempt === 0) {
-						logger.warn(`[Client] fetch attempt ${attempt + 1} failed for ${url}, retrying...`);
+						logger.warn(`[Client] fetch attempt ${attempt + 1} failed for ${this.providerLabel} ${url}, retrying...`);
 						await new Promise(resolve => setTimeout(resolve, 1000));
 					}
 				}
@@ -74,7 +76,7 @@ export class DeepSeekClient {
 
 			if (!response!) {
 				const err = lastError instanceof Error ? lastError : new Error(String(lastError));
-				logger.error(`[Client] All fetch attempts failed for ${url}: ${err.message}`);
+				logger.error(`[Client] All fetch attempts failed for ${this.providerLabel} ${url}: ${err.message}`);
 				throw new Error(
 					`Failed to connect to ${this.baseUrl}. ` +
 					`Check your network connection and that the endpoint is reachable. ` +
@@ -91,7 +93,7 @@ export class DeepSeekClient {
 				} catch {
 					errorMessage = errorText;
 				}
-				throw new Error(`DeepSeek API error (${response.status}): ${errorMessage}`);
+				throw new Error(`${this.providerLabel} API error (${response.status}): ${errorMessage}`);
 			}
 
 			if (!response.body) {

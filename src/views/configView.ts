@@ -3,6 +3,7 @@ import type { ProviderDefinition, UserModelConfig } from '../types';
 import { CONFIG_SECTION, MODELS } from '../consts';
 import { getProviders, getRelatedProviders } from '../config';
 import { updateMiMoModelProviders } from '../auth';
+import { t } from '../i18n';
 
 // ---- Types ----
 
@@ -10,10 +11,17 @@ interface InitPayload {
 	providers: ProviderDefinition[];
 	providerKeys: Record<string, string>;
 	models: Array<UserModelConfig & { builtin?: boolean; hidden?: boolean }>;
+	strings: Record<string, string>;
+	memorySettings: {
+		enabled: boolean;
+		recallModel: string;
+		modelOptions: Array<{ id: string; name: string }>;
+	};
 }
 
 type IncomingMessage =
 	| { type: 'requestInit' }
+	| { type: 'saveMemorySettings'; enabled: boolean; recallModel: string }
 	| { type: 'addProvider'; provider: ProviderDefinition; apiKey?: string }
 	| { type: 'updateProvider'; provider: ProviderDefinition; apiKey?: string }
 	| { type: 'deleteProvider'; providerId: string }
@@ -48,7 +56,7 @@ export class ConfigViewPanel {
 		}
 		const panel = vscode.window.createWebviewPanel(
 			'mimo-copilot.configView',
-			'Provider & Model Configuration',
+			t('configView.title'),
 			column || vscode.ViewColumn.One,
 			{
 				enableScripts: true,
@@ -75,7 +83,7 @@ export class ConfigViewPanel {
 					await this.handleMessage(message);
 				} catch (err) {
 					console.error('[ConfigView] handleMessage failed', err);
-					vscode.window.showErrorMessage(err instanceof Error ? err.message : 'Unexpected error');
+					vscode.window.showErrorMessage(err instanceof Error ? err.message : t('configView.unexpectedError'));
 				}
 			},
 			null,
@@ -103,6 +111,9 @@ export class ConfigViewPanel {
 			case 'requestInit':
 				await this.sendInit();
 				break;
+			case 'saveMemorySettings':
+				await this.saveMemorySettings(message.enabled, message.recallModel);
+				break;
 			case 'addProvider':
 			case 'updateProvider':
 				await this.saveProvider(message.provider, message.apiKey);
@@ -123,16 +134,18 @@ export class ConfigViewPanel {
 				await this.fetchModels(message.providerId, message.baseUrl, message.apiKey);
 				break;
 			case 'requestConfirm': {
+				const yesLabel = t('configView.confirm.yes');
+				const noLabel = t('configView.confirm.no');
 				const confirmed = await vscode.window.showInformationMessage(
 					message.message,
 					{ modal: true },
-					'Yes',
-					'No',
+					yesLabel,
+					noLabel,
 				);
 				this.panel.webview.postMessage({
 					type: 'confirmResponse',
 					id: message.id,
-					confirmed: confirmed === 'Yes',
+					confirmed: confirmed === yesLabel,
 				} as OutgoingMessage);
 				break;
 			}
@@ -142,6 +155,8 @@ export class ConfigViewPanel {
 	// ---- Init ----
 
 	private async sendInit() {
+		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+		const strings = this.getWebviewStrings();
 		const providers = getProviders();
 		const providerKeys: Record<string, string> = {};
 		// Also check sibling provider keys (e.g. mimo-tp) even if not in providers config
@@ -203,17 +218,116 @@ export class ConfigViewPanel {
 			}
 		}
 
+		const memorySettings = {
+			enabled: config.get<boolean>('agenticMemory', false),
+			recallModel: config.get<string>('memory.recallModel', 'mimo-v2-pro'),
+			modelOptions: this.getMemoryRecallModelOptions(),
+		};
+
 		this.panel.webview.postMessage({
 			type: 'init',
-			payload: { providers, providerKeys, models: allModels } satisfies InitPayload,
+			payload: { providers, providerKeys, models: allModels, strings, memorySettings } satisfies InitPayload,
 		} as OutgoingMessage);
+	}
+
+	private getWebviewStrings(): Record<string, string> {
+		return {
+			providersEmpty: t('configView.providers.empty'),
+			providersApiKeyPresent: t('configView.providers.apiKeyPresent'),
+			providersApiKeyMissing: t('configView.providers.apiKeyMissing'),
+			providersEditButton: t('configView.providers.editButton'),
+			providersDeleteButton: t('configView.providers.deleteButton'),
+			providersFormAddTitle: t('configView.providers.form.addTitle'),
+			providersFormEditTitle: t('configView.providers.form.editTitle'),
+			providersFormApiKeyRetainPlaceholder: t('configView.providers.form.apiKeyRetainPlaceholder'),
+			providersFormApiKeyPlaceholder: t('configView.providers.form.apiKeyPlaceholder'),
+			providersIdRequired: t('configView.providers.idRequired'),
+			providersNameRequired: t('configView.providers.nameRequired'),
+			providersBaseUrlRequired: t('configView.providers.baseUrlRequired'),
+			providersFetchApiKeyRequired: t('configView.providers.fetchApiKeyRequired'),
+			providersNoModelsFound: t('configView.providers.noModelsFound'),
+			providersUseAsModel: t('configView.providers.useAsModel'),
+			providersDeleteConfirm: t('configView.providers.deleteConfirm'),
+			providersFetchFailed: t('configView.providers.fetchFailed'),
+			modelsEmpty: t('configView.models.empty'),
+			modelsBadgeBuiltin: t('configView.models.badgeBuiltin'),
+			modelsBadgeHidden: t('configView.models.badgeHidden'),
+			modelsBadgeTools: t('configView.models.badgeTools'),
+			modelsBadgeNativeVision: t('configView.models.badgeNativeVision'),
+			modelsBadgeEnhancedVision: t('configView.models.badgeEnhancedVision'),
+			modelsBadgeThinking: t('configView.models.badgeThinking'),
+			modelsShowButton: t('configView.models.showButton'),
+			modelsEditButton: t('configView.models.editButton'),
+			modelsHideButton: t('configView.models.hideButton'),
+			modelsDeleteButton: t('configView.models.deleteButton'),
+			modelsMetaProvider: t('configView.models.metaProvider'),
+			modelsMetaContext: t('configView.models.metaContext'),
+			modelsMetaOutput: t('configView.models.metaOutput'),
+			modelsMetaTemp: t('configView.models.metaTemp'),
+			modelsMetaTopP: t('configView.models.metaTopP'),
+			modelsFormProviderPlaceholder: t('configView.models.form.providerPlaceholder'),
+			modelsFormAddTitle: t('configView.models.form.addTitle'),
+			modelsFormEditTitle: t('configView.models.form.editTitle'),
+			modelsIdRequired: t('configView.models.idRequired'),
+			modelsNameRequired: t('configView.models.nameRequired'),
+			modelsProviderRequired: t('configView.models.providerRequired'),
+			modelsMaxInputRequired: t('configView.models.maxInputRequired'),
+			modelsMaxOutputRequired: t('configView.models.maxOutputRequired'),
+			modelsHideConfirm: t('configView.models.hideConfirm'),
+			modelsDeleteConfirm: t('configView.models.deleteConfirm'),
+		};
+	}
+
+	private getMemoryRecallModelOptions(): Array<{ id: string; name: string }> {
+		const preferredOrder = ['mimo-v2-pro', 'mimo-v2-flash', 'mimo-v2.5', 'mimo-v2.5-pro'];
+		const sortRank = new Map(preferredOrder.map((id, index) => [id, index]));
+		return MODELS
+			.filter((model) => preferredOrder.includes(model.id))
+			.sort((left, right) => (sortRank.get(left.id) ?? 999) - (sortRank.get(right.id) ?? 999))
+			.map((model) => ({ id: model.id, name: model.name }));
+	}
+
+	private isMaskedApiKey(value: string | undefined): boolean {
+		if (!value?.trim()) {
+			return false;
+		}
+		const trimmed = value.trim();
+		return /^•+$/.test(trimmed) || trimmed.includes('...');
+	}
+
+	private async saveMemorySettings(enabled: boolean, recallModel: string) {
+		if (!recallModel?.trim()) {
+			vscode.window.showErrorMessage(t('configView.memory.required'));
+			return;
+		}
+
+		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+		const previousEnabled = config.get<boolean>('agenticMemory', false);
+		const previousRecallModel = config.get<string>('memory.recallModel', 'mimo-v2-pro');
+
+		await config.update('agenticMemory', enabled, vscode.ConfigurationTarget.Global);
+		await config.update('memory.recallModel', recallModel, vscode.ConfigurationTarget.Global);
+
+		vscode.window.showInformationMessage(t('configView.memory.saved'));
+		await this.sendInit();
+
+		if (previousEnabled !== enabled || previousRecallModel !== recallModel) {
+			const reloadLabel = t('configView.memory.reload');
+			const action = await vscode.window.showInformationMessage(
+				t('configView.memory.changed'),
+				reloadLabel,
+			);
+			if (action === reloadLabel) {
+				await vscode.commands.executeCommand('workbench.action.reloadWindow');
+			}
+		}
 	}
 
 	// ---- Provider CRUD ----
 
 	private async saveProvider(provider: ProviderDefinition, apiKey?: string) {
 		if (!provider.id?.trim()) {
-			vscode.window.showErrorMessage('Provider ID is required.');
+			vscode.window.showErrorMessage(t('configView.providers.idRequired'));
 			return;
 		}
 		const config = vscode.workspace.getConfiguration();
@@ -229,10 +343,11 @@ export class ConfigViewPanel {
 			providers,
 			vscode.ConfigurationTarget.Global,
 		);
-		if (apiKey && !apiKey.includes('...')) {
+		if (apiKey && !this.isMaskedApiKey(apiKey)) {
 			await this.secrets.store(`${CONFIG_SECTION}.apiKey.${provider.id}`, apiKey);
+			await updateMiMoModelProviders(provider.id);
 		}
-		vscode.window.showInformationMessage(`Provider "${provider.name}" saved.`);
+		vscode.window.showInformationMessage(t('configView.providers.saved', provider.name));
 		await this.sendInit();
 	}
 
@@ -245,7 +360,7 @@ export class ConfigViewPanel {
 			vscode.ConfigurationTarget.Global,
 		);
 		await this.secrets.delete(`${CONFIG_SECTION}.apiKey.${providerId}`);
-		vscode.window.showInformationMessage(`Provider "${providerId}" deleted.`);
+		vscode.window.showInformationMessage(t('configView.providers.deleted', providerId));
 		await this.sendInit();
 	}
 
@@ -275,13 +390,13 @@ export class ConfigViewPanel {
 		const config = vscode.workspace.getConfiguration();
 		const models = this.getUserModels();
 		if (models.some((m) => m.id === model.id)) {
-			vscode.window.showErrorMessage(`Model "${model.id}" already exists.`);
+			vscode.window.showErrorMessage(t('configView.models.duplicate', model.id));
 			return;
 		}
 		models.push(model);
 		await config.update(`${CONFIG_SECTION}.models`, models, vscode.ConfigurationTarget.Global);
 		await this.unhideModel(model.id);
-		vscode.window.showInformationMessage(`Model "${model.name}" added.`);
+		vscode.window.showInformationMessage(t('configView.models.added', model.name));
 		await this.sendInit();
 	}
 
@@ -296,7 +411,7 @@ export class ConfigViewPanel {
 		}
 		await config.update(`${CONFIG_SECTION}.models`, models, vscode.ConfigurationTarget.Global);
 		await this.unhideModel(originalId);
-		vscode.window.showInformationMessage(`Model "${model.name}" updated.`);
+		vscode.window.showInformationMessage(t('configView.models.updated', model.name));
 		await this.sendInit();
 	}
 
@@ -320,7 +435,7 @@ export class ConfigViewPanel {
 			const models = this.getUserModels().filter((m) => m.id !== modelId);
 			await config.update(`${CONFIG_SECTION}.models`, models, vscode.ConfigurationTarget.Global);
 		}
-		vscode.window.showInformationMessage(`Model "${modelId}" removed.`);
+		vscode.window.showInformationMessage(t('configView.models.removed', modelId));
 		await this.sendInit();
 	}
 
@@ -329,9 +444,9 @@ export class ConfigViewPanel {
 	private async fetchModels(providerId: string, baseUrl: string, apiKey: string) {
 		try {
 			let realKey = apiKey;
-			if (apiKey.includes('...')) {
+			if (this.isMaskedApiKey(apiKey)) {
 				const stored = await this.secrets.get(`${CONFIG_SECTION}.apiKey.${providerId}`);
-				if (!stored) throw new Error('No API key stored for this provider.');
+				if (!stored) throw new Error(t('configView.providers.noStoredApiKey'));
 				realKey = stored;
 			}
 			const url = `${baseUrl.replace(/\/+$/, '')}/models`;
@@ -366,43 +481,50 @@ export class ConfigViewPanel {
 		);
 		const csp = `default-src 'none'; img-src ${webview.cspSource} https:; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'nonce-${nonce}';`;
 		return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${vscode.env.language}">
 <head>
 <meta charset="UTF-8"/>
 <meta http-equiv="Content-Security-Policy" content="${csp}"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Provider & Model Configuration</title>
+<title>${t('configView.title')}</title>
 <link rel="stylesheet" href="${cssUri}"/>
 </head>
 <body>
 <div id="app">
-<section><div class="section-header"><h2>API Providers</h2><button id="addProviderBtn" class="btn primary">+ Add Provider</button></div><div id="providerList" class="card-list"></div></section>
-<section id="providerForm" style="display:none"><div class="section-header"><h2 id="pfTitle">Add Provider</h2></div>
+<section><div class="section-header"><h2>${t('configView.memory.section')}</h2></div>
 <div class="form-grid">
-<div class="field"><label for="pf-id">Provider ID</label><input id="pf-id" type="text" placeholder="e.g. deepseek, mimo"/><div class="hint">Unique identifier</div></div>
-<div class="field"><label for="pf-name">Display Name</label><input id="pf-name" type="text" placeholder="DeepSeek"/></div>
-<div class="field"><label for="pf-baseUrl">Base URL</label><input id="pf-baseUrl" type="text" placeholder="https://api.deepseek.com"/><div class="hint">API endpoint (supports proxy)</div></div>
-<div class="field"><label for="pf-apiKey">API Key</label><div class="input-with-toggle"><input id="pf-apiKey" type="password" placeholder="sk-..."/><button id="pf-apiKey-toggle" class="btn secondary small toggle-eye" title="Show/Hide">*</button></div><div class="hint">Leave empty to keep existing key</div></div>
+<div class="field"><label for="memoryEnabled">${t('configView.memory.enableLabel')}</label><div class="checkbox-row"><input id="memoryEnabled" type="checkbox"/><span>${t('configView.memory.enableText')}</span></div><div class="hint">${t('configView.memory.enableHint')}</div></div>
+<div class="field"><label for="memoryRecallModel">${t('configView.memory.modelLabel')}</label><select id="memoryRecallModel"></select><div class="hint">${t('configView.memory.modelHint')}</div></div>
 </div>
-<div class="form-actions"><button id="pf-save" class="btn primary">Save</button><button id="pf-cancel" class="btn secondary">Cancel</button><button id="pf-fetchModels" class="btn secondary">Fetch Models</button></div>
-<div id="fetchedModels" style="display:none"><h3>Available Models</h3><div id="fetchedModelsList"></div></div>
+<div class="form-actions"><button id="memorySaveBtn" class="btn primary">${t('configView.memory.save')}</button></div>
 </section>
-<section><div class="section-header"><h2>Model Management</h2><button id="addModelBtn" class="btn primary">+ Add Model</button></div><div id="modelList" class="card-list"></div></section>
-<section id="modelForm" style="display:none"><div class="section-header"><h2 id="mfTitle">Add Model</h2></div>
+<section><div class="section-header"><h2>${t('configView.providers.sectionTitle')}</h2><button id="addProviderBtn" class="btn primary">${t('configView.providers.addButton')}</button></div><div id="providerList" class="card-list"></div></section>
+<section id="providerForm" style="display:none"><div class="section-header"><h2 id="pfTitle">${t('configView.providers.form.addTitle')}</h2></div>
 <div class="form-grid">
-<div class="field"><label for="mf-id">Model ID *</label><input id="mf-id" type="text" placeholder="mimo-v2.5-pro"/><div class="hint">ID sent to the API</div></div>
-<div class="field"><label for="mf-name">Display Name *</label><input id="mf-name" type="text" placeholder="MiMo V2.5 Pro"/></div>
-<div class="field"><label for="mf-providerId">Provider *</label><select id="mf-providerId"><option value="">Select Provider</option></select></div>
-<div class="field"><label for="mf-maxInputTokens">Context Window (tokens)</label><input id="mf-maxInputTokens" type="number" min="1" placeholder="131072"/></div>
-<div class="field"><label for="mf-maxOutputTokens">Max Output Tokens</label><input id="mf-maxOutputTokens" type="number" min="1" placeholder="32768"/></div>
-<div class="field"><label for="mf-temperature">Temperature (0-2)</label><input id="mf-temperature" type="number" min="0" max="2" step="0.1" placeholder="(default)"/></div>
-<div class="field"><label for="mf-topP">Top P (0-1)</label><input id="mf-topP" type="number" min="0" max="1" step="0.05" placeholder="(default)"/></div>
-<div class="field"><label for="mf-toolCalling">Tool Calling</label><select id="mf-toolCalling"><option value="true">Yes</option><option value="false">No</option></select></div>
-<div class="field"><label for="mf-nativeVision">Native Vision</label><select id="mf-nativeVision"><option value="false">No</option><option value="true">Yes</option></select><div class="hint">Model natively supports image input</div></div>
-<div class="field"><label for="mf-enhancedVision">Enhanced Vision</label><select id="mf-enhancedVision"><option value="false">No</option><option value="true">Yes</option></select><div class="hint">用 Copilot 代理描述图片（会增加响应延迟，建议保持关闭）</div></div>
-<div class="field"><label for="mf-thinking">Thinking</label><select id="mf-thinking"><option value="true">Yes</option><option value="false">No</option></select></div>
+<div class="field"><label for="pf-id">${t('configView.providers.form.idLabel')}</label><input id="pf-id" type="text" placeholder="${t('configView.providers.form.idPlaceholder')}"/><div class="hint">${t('configView.providers.form.idHint')}</div></div>
+<div class="field"><label for="pf-name">${t('configView.providers.form.nameLabel')}</label><input id="pf-name" type="text" placeholder="DeepSeek"/></div>
+<div class="field"><label for="pf-baseUrl">${t('configView.providers.form.baseUrlLabel')}</label><input id="pf-baseUrl" type="text" placeholder="https://api.deepseek.com"/><div class="hint">${t('configView.providers.form.baseUrlHint')}</div></div>
+<div class="field"><label for="pf-apiKey">${t('configView.providers.form.apiKeyLabel')}</label><div class="input-with-toggle"><input id="pf-apiKey" type="password" placeholder="${t('configView.providers.form.apiKeyPlaceholder')}"/><button id="pf-apiKey-toggle" class="btn secondary small toggle-eye" title="${t('configView.providers.form.apiKeyToggle')}">*</button></div><div class="hint">${t('configView.providers.form.apiKeyHint')}</div></div>
 </div>
-<div class="form-actions"><button id="mf-save" class="btn primary">Save</button><button id="mf-cancel" class="btn secondary">Cancel</button></div>
+<div class="form-actions"><button id="pf-save" class="btn primary">${t('configView.providers.form.save')}</button><button id="pf-cancel" class="btn secondary">${t('configView.providers.form.cancel')}</button><button id="pf-fetchModels" class="btn secondary">${t('configView.providers.form.fetchModels')}</button></div>
+<div id="fetchedModels" style="display:none"><h3>${t('configView.providers.availableModels')}</h3><div id="fetchedModelsList"></div></div>
+</section>
+<section><div class="section-header"><h2>${t('configView.models.sectionTitle')}</h2><button id="addModelBtn" class="btn primary">${t('configView.models.addButton')}</button></div><div id="modelList" class="card-list"></div></section>
+<section id="modelForm" style="display:none"><div class="section-header"><h2 id="mfTitle">${t('configView.models.form.addTitle')}</h2></div>
+<div class="form-grid">
+<div class="field"><label for="mf-id">${t('configView.models.form.idLabel')}</label><input id="mf-id" type="text" placeholder="mimo-v2.5-pro"/><div class="hint">${t('configView.models.form.idHint')}</div></div>
+<div class="field"><label for="mf-name">${t('configView.models.form.nameLabel')}</label><input id="mf-name" type="text" placeholder="MiMo V2.5 Pro"/></div>
+<div class="field"><label for="mf-providerId">${t('configView.models.form.providerLabel')}</label><select id="mf-providerId"><option value="">${t('configView.models.form.providerPlaceholder')}</option></select></div>
+<div class="field"><label for="mf-maxInputTokens">${t('configView.models.form.maxInputLabel')}</label><input id="mf-maxInputTokens" type="number" min="1" placeholder="131072"/></div>
+<div class="field"><label for="mf-maxOutputTokens">${t('configView.models.form.maxOutputLabel')}</label><input id="mf-maxOutputTokens" type="number" min="1" placeholder="32768"/></div>
+<div class="field"><label for="mf-temperature">${t('configView.models.form.temperatureLabel')}</label><input id="mf-temperature" type="number" min="0" max="2" step="0.1" placeholder="${t('configView.models.form.defaultPlaceholder')}"/></div>
+<div class="field"><label for="mf-topP">${t('configView.models.form.topPLabel')}</label><input id="mf-topP" type="number" min="0" max="1" step="0.05" placeholder="${t('configView.models.form.defaultPlaceholder')}"/></div>
+<div class="field"><label for="mf-toolCalling">${t('configView.models.form.toolCallingLabel')}</label><select id="mf-toolCalling"><option value="true">${t('configView.common.yes')}</option><option value="false">${t('configView.common.no')}</option></select></div>
+<div class="field"><label for="mf-nativeVision">${t('configView.models.form.nativeVisionLabel')}</label><select id="mf-nativeVision"><option value="false">${t('configView.common.no')}</option><option value="true">${t('configView.common.yes')}</option></select><div class="hint">${t('configView.models.form.nativeVisionHint')}</div></div>
+<div class="field"><label for="mf-enhancedVision">${t('configView.models.form.enhancedVisionLabel')}</label><select id="mf-enhancedVision"><option value="false">${t('configView.common.no')}</option><option value="true">${t('configView.common.yes')}</option></select><div class="hint">${t('configView.models.form.enhancedVisionHint')}</div></div>
+<div class="field"><label for="mf-thinking">${t('configView.models.form.thinkingLabel')}</label><select id="mf-thinking"><option value="true">${t('configView.common.yes')}</option><option value="false">${t('configView.common.no')}</option></select></div>
+</div>
+<div class="form-actions"><button id="mf-save" class="btn primary">${t('configView.models.form.save')}</button><button id="mf-cancel" class="btn secondary">${t('configView.models.form.cancel')}</button></div>
 </section>
 </div>
 <script nonce="${nonce}" src="${jsUri}"></script>
