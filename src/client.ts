@@ -42,6 +42,10 @@ export class DeepSeekClient {
 				? { ...request }
 				: { ...request, stream_options: { include_usage: true } };
 
+			// Debug: log the full request body (without messages content to avoid noise)
+			const debugBody = { ...requestBody, messages: `[${requestBody.messages.length} messages]` };
+			logger.debug(`[Client] POST ${this.baseUrl}/chat/completions body=${JSON.stringify(debugBody)}`);
+
 			const url = `${this.baseUrl}/chat/completions`;
 
 			let response: Response;

@@ -43,6 +43,7 @@ export interface DeepSeekRequest {
 	temperature?: number;
 	top_p?: number;
 	max_tokens?: number;
+	max_completion_tokens?: number;
 	tools?: DeepSeekTool[];
 	tool_choice?: 'none' | 'auto' | 'required';
 	thinking?: { type: 'enabled' | 'disabled' };

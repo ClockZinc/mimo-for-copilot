@@ -361,7 +361,9 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 					stream: true,
 					tools,
 					tool_choice: tools && tools.length > 0 ? 'auto' : undefined,
-					max_tokens: maxTokens,
+					...(isMiMo
+						? { max_completion_tokens: maxTokens }
+						: { max_tokens: maxTokens }),
 					...(userTemp !== undefined ? { temperature: userTemp } : {}),
 					...(userTopP !== undefined ? { top_p: userTopP } : {}),
 					...(isThinkingModel && needsThinkingParam
