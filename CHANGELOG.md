@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.1.2](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.1.1...v1.1.2) (2026-05-10)
+
+### Documentation
+
+* refresh the extension icon and republish the packaged VSIX
+
 ## [1.1.1](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.1.0...v1.1.1) (2026-05-10)
 
 ### Features
