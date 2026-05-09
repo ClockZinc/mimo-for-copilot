@@ -8,6 +8,23 @@
 	let providerKeys = {};
 	let models = [];
 	let memorySettings = { enabled: false, recallModel: 'mimo-v2-pro', modelOptions: [] };
+	let compressionSettings = {
+		enabled: true,
+		compressImages: true,
+		truncateLongToolOutputs: true,
+		summarizeStructuredOutputs: false,
+		useToolTypePolicies: true,
+		showCompressionNotice: false,
+		maxToolOutputChars: 8000,
+		smallToolImageBytes: 262144,
+		maxCompressedImageBytes: 524288,
+		imageOutputFormat: 'auto',
+		primaryImageMaxEdge: 1024,
+		primaryImageQuality: 80,
+		fallbackImageMaxEdge: 512,
+		fallbackImageQuality: 70,
+		keepOriginalImagesWhenDisabled: false,
+	};
 	let strings = {};
 	let editingProviderId = null;
 	let editingModelId = null;
@@ -24,6 +41,23 @@
 	const memoryEnabled = document.getElementById('memoryEnabled');
 	const memoryRecallModel = document.getElementById('memoryRecallModel');
 	const memorySaveBtn = document.getElementById('memorySaveBtn');
+	const compressionEnabled = document.getElementById('compressionEnabled');
+	const compressionNotice = document.getElementById('compressionNotice');
+	const compressionImages = document.getElementById('compressionImages');
+	const compressionStructured = document.getElementById('compressionStructured');
+	const compressionTruncate = document.getElementById('compressionTruncate');
+	const compressionToolPolicies = document.getElementById('compressionToolPolicies');
+	const compressionMaxChars = document.getElementById('compressionMaxChars');
+	const compressionSmallImageKb = document.getElementById('compressionSmallImageKb');
+	const compressionImageOutputFormat = document.getElementById('compressionImageOutputFormat');
+	const compressionMaxImageKb = document.getElementById('compressionMaxImageKb');
+	const compressionPrimaryImageMaxEdge = document.getElementById('compressionPrimaryImageMaxEdge');
+	const compressionPrimaryImageQuality = document.getElementById('compressionPrimaryImageQuality');
+	const compressionFallbackImageMaxEdge = document.getElementById('compressionFallbackImageMaxEdge');
+	const compressionFallbackImageQuality = document.getElementById('compressionFallbackImageQuality');
+	const compressionKeepOriginalImages = document.getElementById('compressionKeepOriginalImages');
+	const compressionCouplingHint = document.getElementById('compressionCouplingHint');
+	const compressionSaveBtn = document.getElementById('compressionSaveBtn');
 
 	function post(msg) { vscode.postMessage(msg); }
 
@@ -35,9 +69,11 @@
 				providers = msg.payload.providers || [];
 				providerKeys = msg.payload.providerKeys || {};
 				models = msg.payload.models || [];
-					memorySettings = msg.payload.memorySettings || memorySettings;
-					strings = msg.payload.strings || strings;
-					renderMemorySettings();
+				memorySettings = msg.payload.memorySettings || memorySettings;
+				compressionSettings = msg.payload.compressionSettings || compressionSettings;
+				strings = msg.payload.strings || strings;
+				renderMemorySettings();
+				renderCompressionSettings();
 				renderProviders();
 				renderModels();
 				break;
@@ -86,6 +122,99 @@
 			type: 'saveMemorySettings',
 			enabled: !!memoryEnabled.checked,
 			recallModel: memoryRecallModel.value || 'mimo-v2-pro',
+		});
+	});
+
+	function renderCompressionSettings() {
+		compressionEnabled.checked = !!compressionSettings.enabled;
+		compressionImages.checked = !!compressionSettings.compressImages;
+		compressionTruncate.checked = !!compressionSettings.truncateLongToolOutputs;
+		compressionStructured.checked = !!compressionSettings.summarizeStructuredOutputs;
+		compressionToolPolicies.checked = !!compressionSettings.useToolTypePolicies;
+		compressionNotice.checked = !!compressionSettings.showCompressionNotice;
+		compressionMaxChars.value = compressionSettings.maxToolOutputChars || 8000;
+		compressionSmallImageKb.value = Math.round((compressionSettings.smallToolImageBytes || 262144) / 1024);
+		compressionImageOutputFormat.value = compressionSettings.imageOutputFormat || 'auto';
+		compressionMaxImageKb.value = Math.round((compressionSettings.maxCompressedImageBytes || 524288) / 1024);
+		compressionPrimaryImageMaxEdge.value = compressionSettings.primaryImageMaxEdge || 1024;
+		compressionPrimaryImageQuality.value = compressionSettings.primaryImageQuality || 80;
+		compressionFallbackImageMaxEdge.value = compressionSettings.fallbackImageMaxEdge || 512;
+		compressionFallbackImageQuality.value = compressionSettings.fallbackImageQuality || 70;
+		compressionKeepOriginalImages.checked = !!compressionSettings.keepOriginalImagesWhenDisabled;
+		updateCompressionInterlocks();
+	}
+
+	function updateCompressionInterlocks() {
+		var enabled = !!compressionEnabled.checked;
+		var truncation = !!compressionTruncate.checked;
+		[
+			compressionImages,
+			compressionTruncate,
+			compressionStructured,
+			compressionNotice,
+			compressionMaxChars,
+			compressionSmallImageKb,
+			compressionImageOutputFormat,
+			compressionMaxImageKb,
+			compressionPrimaryImageMaxEdge,
+			compressionPrimaryImageQuality,
+			compressionFallbackImageMaxEdge,
+			compressionFallbackImageQuality,
+			compressionKeepOriginalImages,
+		].forEach(function (el) { el.disabled = !enabled; });
+		[
+			compressionSmallImageKb,
+			compressionImageOutputFormat,
+			compressionMaxImageKb,
+			compressionPrimaryImageMaxEdge,
+			compressionPrimaryImageQuality,
+			compressionFallbackImageMaxEdge,
+			compressionFallbackImageQuality,
+		].forEach(function (el) { el.disabled = !enabled || !compressionImages.checked; });
+		compressionKeepOriginalImages.disabled = !enabled || compressionImages.checked;
+		compressionToolPolicies.disabled = !enabled || !truncation;
+		if (!truncation) {
+			compressionToolPolicies.checked = false;
+		}
+		var hints = [];
+		if (!enabled) hints.push(strings.compressionMasterOffHint);
+		if (enabled && !truncation) hints.push(strings.compressionPolicyDisabledHint);
+		if (enabled && !compressionImages.checked) hints.push(strings.compressionImageDisabledHint);
+		compressionCouplingHint.textContent = hints.join(' ');
+	}
+
+	[
+		compressionEnabled,
+		compressionImages,
+		compressionTruncate,
+		compressionStructured,
+		compressionToolPolicies,
+		compressionNotice,
+		compressionKeepOriginalImages,
+	].forEach(function (el) {
+		el.addEventListener('change', updateCompressionInterlocks);
+	});
+
+	compressionSaveBtn.addEventListener('click', function () {
+		post({
+			type: 'saveCompressionSettings',
+			settings: {
+				enabled: !!compressionEnabled.checked,
+				compressImages: !!compressionImages.checked,
+				truncateLongToolOutputs: !!compressionTruncate.checked,
+				summarizeStructuredOutputs: !!compressionStructured.checked,
+				useToolTypePolicies: !!compressionToolPolicies.checked,
+				showCompressionNotice: !!compressionNotice.checked,
+				maxToolOutputChars: parseInt(compressionMaxChars.value, 10) || 8000,
+				smallToolImageBytes: (parseInt(compressionSmallImageKb.value, 10) || 256) * 1024,
+				imageOutputFormat: compressionImageOutputFormat.value || 'auto',
+				maxCompressedImageBytes: (parseInt(compressionMaxImageKb.value, 10) || 512) * 1024,
+				primaryImageMaxEdge: parseInt(compressionPrimaryImageMaxEdge.value, 10) || 1024,
+				primaryImageQuality: parseInt(compressionPrimaryImageQuality.value, 10) || 80,
+				fallbackImageMaxEdge: parseInt(compressionFallbackImageMaxEdge.value, 10) || 512,
+				fallbackImageQuality: parseInt(compressionFallbackImageQuality.value, 10) || 70,
+				keepOriginalImagesWhenDisabled: !!compressionKeepOriginalImages.checked,
+			},
 		});
 	});
 

@@ -3,13 +3,28 @@
   "displayName": "MiMo for Copilot Chat",
   "description": "Use MiMo V2.5 Pro & DeepSeek V4 models in Copilot Chat. Vision, thinking mode, agent tools. Multi-provider BYOK.",
   "icon": "resources/mimo.png",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "publisher": "clockzincbit",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/ClockZinc/mimo-for-copilot"
   },
+  "homepage": "https://github.com/ClockZinc/mimo-for-copilot#readme",
+  "bugs": {
+    "url": "https://github.com/ClockZinc/mimo-for-copilot/issues"
+  },
+  "galleryBanner": {
+    "color": "1b1f3b",
+    "theme": "dark"
+  },
+  "badges": [
+    {
+      "url": "https://img.shields.io/github/stars/ClockZinc/mimo-for-copilot?style=social",
+      "description": "Star MiMo for Copilot Chat on GitHub",
+      "href": "https://github.com/ClockZinc/mimo-for-copilot"
+    }
+  ],
   "engines": {
     "vscode": "^1.116.0",
     "node": ">=24"
@@ -37,6 +52,15 @@
     "language model",
     "thinking",
     "reasoning",
+    "mimo",
+    "xiaomi",
+    "openai responses",
+    "responses api",
+    "tool calling",
+    "agent mode",
+    "memory",
+    "token usage",
+    "compression",
     "ai",
     "chat"
   ],
@@ -137,20 +161,57 @@
         "mimo-copilot.providers": {
           "type": "array",
           "default": [
-            { "id": "deepseek", "name": "DeepSeek", "baseUrl": "https://api.deepseek.com" },
-            { "id": "mimo", "name": "MiMo (Xiaomi)", "baseUrl": "https://api.xiaomimimo.com/v1" },
-            { "id": "mimo-tp", "name": "MiMo Token Plan", "baseUrl": "https://token-plan-cn.xiaomimimo.com/v1" },
-            { "id": "openai-responses", "name": "OpenAI Responses", "baseUrl": "", "apiMode": "responses" }
+            {
+              "id": "deepseek",
+              "name": "DeepSeek",
+              "baseUrl": "https://api.deepseek.com"
+            },
+            {
+              "id": "mimo",
+              "name": "MiMo (Xiaomi)",
+              "baseUrl": "https://api.xiaomimimo.com/v1"
+            },
+            {
+              "id": "mimo-tp",
+              "name": "MiMo Token Plan",
+              "baseUrl": "https://token-plan-cn.xiaomimimo.com/v1"
+            },
+            {
+              "id": "openai-responses",
+              "name": "OpenAI Responses",
+              "baseUrl": "",
+              "apiMode": "responses"
+            }
           ],
           "items": {
             "type": "object",
             "properties": {
-              "id": { "type": "string", "description": "Unique provider ID" },
-              "name": { "type": "string", "description": "Display name" },
-              "baseUrl": { "type": "string", "description": "API base URL" },
-              "apiMode": { "type": "string", "enum": ["chat-completions", "responses"], "description": "Provider API mode" }
+              "id": {
+                "type": "string",
+                "description": "Unique provider ID"
+              },
+              "name": {
+                "type": "string",
+                "description": "Display name"
+              },
+              "baseUrl": {
+                "type": "string",
+                "description": "API base URL"
+              },
+              "apiMode": {
+                "type": "string",
+                "enum": [
+                  "chat-completions",
+                  "responses"
+                ],
+                "description": "Provider API mode"
+              }
             },
-            "required": ["id", "name", "baseUrl"]
+            "required": [
+              "id",
+              "name",
+              "baseUrl"
+            ]
           },
           "description": "%mimo-copilot.config.providers.description%"
         },
@@ -160,27 +221,62 @@
           "items": {
             "type": "object",
             "properties": {
-              "id": { "type": "string" },
-              "name": { "type": "string" },
-              "providerId": { "type": "string" },
-              "maxInputTokens": { "type": "number" },
-              "maxOutputTokens": { "type": "number" },
-              "toolCalling": { "type": "boolean" },
-              "nativeVision": { "type": "boolean" },
-              "enhancedVision": { "type": "boolean" },
-              "thinking": { "type": "boolean" },
-              "requiresThinkingParam": { "type": "boolean" },
-              "temperature": { "type": "number" },
-              "topP": { "type": "number" }
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "providerId": {
+                "type": "string"
+              },
+              "maxInputTokens": {
+                "type": "number"
+              },
+              "maxOutputTokens": {
+                "type": "number"
+              },
+              "toolCalling": {
+                "type": "boolean"
+              },
+              "nativeVision": {
+                "type": "boolean"
+              },
+              "enhancedVision": {
+                "type": "boolean"
+              },
+              "thinking": {
+                "type": "boolean"
+              },
+              "requiresThinkingParam": {
+                "type": "boolean"
+              },
+              "temperature": {
+                "type": "number"
+              },
+              "topP": {
+                "type": "number"
+              }
             },
-            "required": ["id", "name", "providerId", "maxInputTokens", "maxOutputTokens"]
+            "required": [
+              "id",
+              "name",
+              "providerId",
+              "maxInputTokens",
+              "maxOutputTokens"
+            ]
           },
           "description": "%mimo-copilot.config.models.description%"
         },
         "mimo-copilot.hiddenModels": {
           "type": "array",
-          "default": ["mimo-v2-pro", "mimo-v2-flash"],
-          "items": { "type": "string" },
+          "default": [
+            "mimo-v2-pro",
+            "mimo-v2-flash"
+          ],
+          "items": {
+            "type": "string"
+          },
           "description": "%mimo-copilot.config.hiddenModels.description%"
         },
         "mimo-copilot.maxTokens": {
@@ -197,7 +293,12 @@
         "mimo-copilot.memory.recallModel": {
           "type": "string",
           "default": "mimo-v2-pro",
-          "enum": ["mimo-v2-pro", "mimo-v2-flash", "mimo-v2.5", "mimo-v2.5-pro"],
+          "enum": [
+            "mimo-v2-pro",
+            "mimo-v2-flash",
+            "mimo-v2.5",
+            "mimo-v2.5-pro"
+          ],
           "description": "%mimo-copilot.config.memory.recallModel.description%"
         },
         "mimo-copilot.memory.dreamIntervalHours": {
@@ -211,6 +312,101 @@
           "default": 5,
           "minimum": 1,
           "description": "%mimo-copilot.config.memory.dreamMinSessions.description%"
+        },
+        "mimo-copilot.responses.toolOutputCompression.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Responses tool-output compression pipeline. Turning this off disables image compression, long-output truncation, structured summaries, tool-type policies, and compression notices."
+        },
+        "mimo-copilot.responses.toolOutputCompression.compressImages": {
+          "type": "boolean",
+          "default": true,
+          "description": "Compress image tool outputs with sharp and send compressed images as input_image. Requires the master compression switch to be enabled."
+        },
+        "mimo-copilot.responses.toolOutputCompression.truncateLongToolOutputs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Truncate long tool outputs with head/tail retention. Requires the master compression switch to be enabled."
+        },
+        "mimo-copilot.responses.toolOutputCompression.summarizeStructuredOutputs": {
+          "type": "boolean",
+          "default": false,
+          "description": "Summarize large structured tool outputs such as JSON arrays/objects. Requires the master compression switch to be enabled."
+        },
+        "mimo-copilot.responses.toolOutputCompression.useToolTypePolicies": {
+          "type": "boolean",
+          "default": true,
+          "description": "Apply tool-specific output budgets and head/tail ratios. Only works when master compression and long-output truncation are enabled."
+        },
+        "mimo-copilot.responses.toolOutputCompression.showNotice": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show a short chat notice when tool output compression, image compression, structured summarization, or truncation is applied."
+        },
+        "mimo-copilot.responses.toolOutputCompression.maxToolOutputChars": {
+          "type": "number",
+          "default": 8000,
+          "minimum": 1000,
+          "maximum": 100000,
+          "description": "Default character budget for each long tool output before head/tail truncation. Tool-type policies may raise this budget for important tools."
+        },
+        "mimo-copilot.responses.toolOutputCompression.smallToolImageBytes": {
+          "type": "number",
+          "default": 262144,
+          "minimum": 16384,
+          "maximum": 10485760,
+          "description": "Image tool outputs at or below this byte size are kept as-is; larger images first try format conversion without resizing, and only resize if still too large."
+        },
+        "mimo-copilot.responses.toolOutputCompression.imageOutputFormat": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "jpeg",
+            "webp",
+            "png"
+          ],
+          "description": "Preferred image re-encoding format used before resize. Auto prefers WebP for PNG/alpha images and JPEG for others."
+        },
+        "mimo-copilot.responses.toolOutputCompression.maxCompressedImageBytes": {
+          "type": "number",
+          "default": 524288,
+          "minimum": 32768,
+          "maximum": 10485760,
+          "description": "Maximum byte size allowed for compressed image tool outputs before falling back to a text summary."
+        },
+        "mimo-copilot.responses.toolOutputCompression.primaryImageMaxEdge": {
+          "type": "number",
+          "default": 1024,
+          "minimum": 128,
+          "maximum": 4096,
+          "description": "Primary resize max edge in pixels, used only when format conversion alone is still too large."
+        },
+        "mimo-copilot.responses.toolOutputCompression.primaryImageQuality": {
+          "type": "number",
+          "default": 80,
+          "minimum": 10,
+          "maximum": 100,
+          "description": "Primary quality for JPEG/WebP (and quantized PNG) image tool output compression."
+        },
+        "mimo-copilot.responses.toolOutputCompression.fallbackImageMaxEdge": {
+          "type": "number",
+          "default": 512,
+          "minimum": 128,
+          "maximum": 4096,
+          "description": "Fallback resize max edge in pixels when the primary resized image remains too large."
+        },
+        "mimo-copilot.responses.toolOutputCompression.fallbackImageQuality": {
+          "type": "number",
+          "default": 70,
+          "minimum": 10,
+          "maximum": 100,
+          "description": "Fallback quality for JPEG/WebP (and quantized PNG) image tool output compression."
+        },
+        "mimo-copilot.responses.toolOutputCompression.keepOriginalImagesWhenDisabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "When image compression is disabled, replay original image tool outputs instead of omitting them. This can greatly increase context size."
         },
         "mimo-copilot.modelIdOverrides": {
           "type": "object",
@@ -294,5 +490,8 @@
     "oxfmt": "^0.47.0",
     "oxlint": "^1.62.0",
     "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "sharp": "^0.34.5"
   }
 }

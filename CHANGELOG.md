@@ -1,5 +1,34 @@
 # Changelog
 
+## [Unreleased]
+
+### Features
+
+* show actual post-compression prompt tokens and MiMo compression ratio in the token status tooltip
+* always show a bold warning when oversized image tool outputs are removed before sending to the model
+
+### Documentation
+
+* rename README screenshots with descriptive filenames
+* credit the OAI-compatible Copilot-style configuration UI inspiration
+* refresh the README hero section and extension metadata for a Marketplace-style landing page
+
+## [1.1.0](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.0.1...v1.1.0) (2026-05-10)
+
+### Features
+
+* add Responses tool-output compression configuration page
+* add real image compression with format-first strategy for tool image replay
+* add image format selection, resize, quality, and replay controls
+* add tool-type truncation policies and optional structured output summaries
+* add transient compression notices that are shown once and filtered from replay history
+* improve provider config UX with token-indicator entry workflow documentation
+
+### Documentation
+
+* rewrite README quick start and configuration guidance
+* add screenshots for model picker, Agentic Memory, and Responses compression settings
+
 ## [1.0.1](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.0.0...v1.0.1) (2026-05-06)
 
 

@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import type { ProviderDefinition, UserModelConfig } from '../types';
 import { CONFIG_SECTION, MODELS } from '../consts';
-import { getProviders, getRelatedProviders } from '../config';
+import { getProviders, getRelatedProviders, getToolOutputCompressionSettings } from '../config';
+import type { ToolOutputCompressionSettings } from '../config';
 import { updateMiMoModelProviders } from '../auth';
 import { t } from '../i18n';
 
@@ -17,11 +18,13 @@ interface InitPayload {
 		recallModel: string;
 		modelOptions: Array<{ id: string; name: string }>;
 	};
+	compressionSettings: ToolOutputCompressionSettings;
 }
 
 type IncomingMessage =
 	| { type: 'requestInit' }
 	| { type: 'saveMemorySettings'; enabled: boolean; recallModel: string }
+	| { type: 'saveCompressionSettings'; settings: ToolOutputCompressionSettings }
 	| { type: 'addProvider'; provider: ProviderDefinition; apiKey?: string }
 	| { type: 'updateProvider'; provider: ProviderDefinition; apiKey?: string }
 	| { type: 'deleteProvider'; providerId: string }
@@ -113,6 +116,9 @@ export class ConfigViewPanel {
 				break;
 			case 'saveMemorySettings':
 				await this.saveMemorySettings(message.enabled, message.recallModel);
+				break;
+			case 'saveCompressionSettings':
+				await this.saveCompressionSettings(message.settings);
 				break;
 			case 'addProvider':
 			case 'updateProvider':
@@ -223,15 +229,19 @@ export class ConfigViewPanel {
 			recallModel: config.get<string>('memory.recallModel', 'mimo-v2-pro'),
 			modelOptions: this.getMemoryRecallModelOptions(),
 		};
+		const compressionSettings = getToolOutputCompressionSettings();
 
 		this.panel.webview.postMessage({
 			type: 'init',
-			payload: { providers, providerKeys, models: allModels, strings, memorySettings } satisfies InitPayload,
+			payload: { providers, providerKeys, models: allModels, strings, memorySettings, compressionSettings } satisfies InitPayload,
 		} as OutgoingMessage);
 	}
 
 	private getWebviewStrings(): Record<string, string> {
 		return {
+			compressionMasterOffHint: t('configView.compression.masterOffHint'),
+			compressionPolicyDisabledHint: t('configView.compression.policyDisabledHint'),
+			compressionImageDisabledHint: t('configView.compression.imageDisabledHint'),
 			providersEmpty: t('configView.providers.empty'),
 			providersApiKeyPresent: t('configView.providers.apiKeyPresent'),
 			providersApiKeyMissing: t('configView.providers.apiKeyMissing'),
@@ -321,6 +331,37 @@ export class ConfigViewPanel {
 				await vscode.commands.executeCommand('workbench.action.reloadWindow');
 			}
 		}
+	}
+
+	private async saveCompressionSettings(settings: ToolOutputCompressionSettings) {
+		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+		const update = async (key: string, value: unknown) => {
+			await config.update(`responses.toolOutputCompression.${key}`, value, vscode.ConfigurationTarget.Global);
+		};
+
+		await update('enabled', !!settings.enabled);
+		await update('compressImages', !!settings.compressImages);
+		await update('truncateLongToolOutputs', !!settings.truncateLongToolOutputs);
+		await update('summarizeStructuredOutputs', !!settings.summarizeStructuredOutputs);
+		await update('useToolTypePolicies', !!settings.useToolTypePolicies);
+		await update('showNotice', !!settings.showCompressionNotice);
+		await update('maxToolOutputChars', Math.max(1000, Math.floor(settings.maxToolOutputChars || 8000)));
+		await update('smallToolImageBytes', Math.max(16 * 1024, Math.floor(settings.smallToolImageBytes || 256 * 1024)));
+		await update('maxCompressedImageBytes', Math.max(32 * 1024, Math.floor(settings.maxCompressedImageBytes || 512 * 1024)));
+		await update(
+			'imageOutputFormat',
+			settings.imageOutputFormat === 'jpeg' || settings.imageOutputFormat === 'webp' || settings.imageOutputFormat === 'png'
+				? settings.imageOutputFormat
+				: 'auto',
+		);
+		await update('primaryImageMaxEdge', Math.max(128, Math.floor(settings.primaryImageMaxEdge || 1024)));
+		await update('primaryImageQuality', Math.min(100, Math.max(10, Math.floor(settings.primaryImageQuality || 80))));
+		await update('fallbackImageMaxEdge', Math.max(128, Math.floor(settings.fallbackImageMaxEdge || 512)));
+		await update('fallbackImageQuality', Math.min(100, Math.max(10, Math.floor(settings.fallbackImageQuality || 70))));
+		await update('keepOriginalImagesWhenDisabled', !!settings.keepOriginalImagesWhenDisabled);
+
+		vscode.window.showInformationMessage(t('configView.compression.saved'));
+		await this.sendInit();
 	}
 
 	// ---- Provider CRUD ----
@@ -495,13 +536,6 @@ export class ConfigViewPanel {
 </head>
 <body>
 <div id="app">
-<section><div class="section-header"><h2>${t('configView.memory.section')}</h2></div>
-<div class="form-grid">
-<div class="field"><label for="memoryEnabled">${t('configView.memory.enableLabel')}</label><div class="checkbox-row"><input id="memoryEnabled" type="checkbox"/><span>${t('configView.memory.enableText')}</span></div><div class="hint">${t('configView.memory.enableHint')}</div></div>
-<div class="field"><label for="memoryRecallModel">${t('configView.memory.modelLabel')}</label><select id="memoryRecallModel"></select><div class="hint">${t('configView.memory.modelHint')}</div></div>
-</div>
-<div class="form-actions"><button id="memorySaveBtn" class="btn primary">${t('configView.memory.save')}</button></div>
-</section>
 <section><div class="section-header"><h2>${t('configView.providers.sectionTitle')}</h2><button id="addProviderBtn" class="btn primary">${t('configView.providers.addButton')}</button></div><div id="providerList" class="card-list"></div></section>
 <section id="providerForm" style="display:none"><div class="section-header"><h2 id="pfTitle">${t('configView.providers.form.addTitle')}</h2></div>
 <div class="form-grid">
@@ -532,6 +566,35 @@ export class ConfigViewPanel {
 <div class="field"><label for="mf-requiresThinkingParam">${t('configView.models.form.requiresThinkingParamLabel')}</label><select id="mf-requiresThinkingParam"><option value="true">${t('configView.common.yes')}</option><option value="false">${t('configView.common.no')}</option></select><div class="hint">${t('configView.models.form.requiresThinkingParamHint')}</div></div>
 </div>
 <div class="form-actions"><button id="mf-save" class="btn primary">${t('configView.models.form.save')}</button><button id="mf-cancel" class="btn secondary">${t('configView.models.form.cancel')}</button></div>
+</section>
+<section><div class="section-header"><h2>${t('configView.memory.section')}</h2></div>
+<div class="form-grid">
+<div class="field"><label for="memoryEnabled">${t('configView.memory.enableLabel')}</label><div class="checkbox-row"><input id="memoryEnabled" type="checkbox"/><span>${t('configView.memory.enableText')}</span></div><div class="hint">${t('configView.memory.enableHint')}</div></div>
+<div class="field"><label for="memoryRecallModel">${t('configView.memory.modelLabel')}</label><select id="memoryRecallModel"></select><div class="hint">${t('configView.memory.modelHint')}</div></div>
+</div>
+<div class="form-actions"><button id="memorySaveBtn" class="btn primary">${t('configView.memory.save')}</button></div>
+</section>
+<section><div class="section-header"><h2>${t('configView.compression.section')}</h2></div>
+<div class="hint">${t('configView.compression.description')}</div>
+<div class="form-grid compression-grid">
+<div class="field"><label for="compressionEnabled">${t('configView.compression.enabledLabel')}</label><div class="checkbox-row"><input id="compressionEnabled" type="checkbox"/><span>${t('configView.compression.enabledText')}</span></div><div class="hint">${t('configView.compression.enabledHint')}</div></div>
+<div class="field"><label for="compressionNotice">${t('configView.compression.noticeLabel')}</label><div class="checkbox-row"><input id="compressionNotice" type="checkbox"/><span>${t('configView.compression.noticeText')}</span></div></div>
+<div class="field"><label for="compressionImages">${t('configView.compression.imagesLabel')}</label><div class="checkbox-row"><input id="compressionImages" type="checkbox"/><span>${t('configView.compression.imagesText')}</span></div><div class="hint">${t('configView.compression.imagesHint')}</div></div>
+<div class="field"><label for="compressionStructured">${t('configView.compression.structuredLabel')}</label><div class="checkbox-row"><input id="compressionStructured" type="checkbox"/><span>${t('configView.compression.structuredText')}</span></div></div>
+<div class="field"><label for="compressionTruncate">${t('configView.compression.truncateLabel')}</label><div class="checkbox-row"><input id="compressionTruncate" type="checkbox"/><span>${t('configView.compression.truncateText')}</span></div><div class="hint">${t('configView.compression.truncateHint')}</div></div>
+<div class="field"><label for="compressionToolPolicies">${t('configView.compression.toolPoliciesLabel')}</label><div class="checkbox-row"><input id="compressionToolPolicies" type="checkbox"/><span>${t('configView.compression.toolPoliciesText')}</span></div><div class="hint">${t('configView.compression.toolPoliciesHint')}</div></div>
+<div class="field"><label for="compressionMaxChars">${t('configView.compression.maxCharsLabel')}</label><input id="compressionMaxChars" type="number" min="1000" max="100000" step="1000"/><div class="hint">${t('configView.compression.maxCharsHint')}</div></div>
+<div class="field"><label for="compressionSmallImageKb">${t('configView.compression.smallImageLabel')}</label><input id="compressionSmallImageKb" type="number" min="16" max="10240" step="16"/><div class="hint">${t('configView.compression.smallImageHint')}</div></div>
+<div class="field"><label for="compressionImageOutputFormat">${t('configView.compression.imageFormatLabel')}</label><select id="compressionImageOutputFormat"><option value="auto">${t('configView.compression.imageFormatAuto')}</option><option value="jpeg">${t('configView.compression.imageFormatJpeg')}</option><option value="webp">${t('configView.compression.imageFormatWebp')}</option><option value="png">${t('configView.compression.imageFormatPng')}</option></select><div class="hint">${t('configView.compression.imageFormatHint')}</div></div>
+<div class="field"><label for="compressionMaxImageKb">${t('configView.compression.maxImageLabel')}</label><input id="compressionMaxImageKb" type="number" min="32" max="10240" step="16"/><div class="hint">${t('configView.compression.maxImageHint')}</div></div>
+<div class="field"><label for="compressionPrimaryImageMaxEdge">${t('configView.compression.primaryImageMaxEdgeLabel')}</label><input id="compressionPrimaryImageMaxEdge" type="number" min="128" max="4096" step="64"/><div class="hint">${t('configView.compression.primaryImageMaxEdgeHint')}</div></div>
+<div class="field"><label for="compressionPrimaryImageQuality">${t('configView.compression.primaryImageQualityLabel')}</label><input id="compressionPrimaryImageQuality" type="number" min="10" max="100" step="5"/><div class="hint">${t('configView.compression.primaryImageQualityHint')}</div></div>
+<div class="field"><label for="compressionFallbackImageMaxEdge">${t('configView.compression.fallbackImageMaxEdgeLabel')}</label><input id="compressionFallbackImageMaxEdge" type="number" min="128" max="4096" step="64"/><div class="hint">${t('configView.compression.fallbackImageMaxEdgeHint')}</div></div>
+<div class="field"><label for="compressionFallbackImageQuality">${t('configView.compression.fallbackImageQualityLabel')}</label><input id="compressionFallbackImageQuality" type="number" min="10" max="100" step="5"/><div class="hint">${t('configView.compression.fallbackImageQualityHint')}</div></div>
+<div class="field"><label for="compressionKeepOriginalImages">${t('configView.compression.keepOriginalImagesLabel')}</label><div class="checkbox-row"><input id="compressionKeepOriginalImages" type="checkbox"/><span>${t('configView.compression.keepOriginalImagesText')}</span></div><div class="hint">${t('configView.compression.keepOriginalImagesHint')}</div></div>
+</div>
+<div id="compressionCouplingHint" class="notice"></div>
+<div class="form-actions"><button id="compressionSaveBtn" class="btn primary">${t('configView.compression.save')}</button></div>
 </section>
 </div>
 <script nonce="${nonce}" src="${jsUri}"></script>

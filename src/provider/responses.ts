@@ -1,6 +1,8 @@
 import vscode from 'vscode';
 import type { CancellationToken } from 'vscode';
-import { getApiModelId } from '../config';
+import sharp from 'sharp';
+import { getApiModelId, getToolOutputCompressionSettings } from '../config';
+import type { ToolImageOutputFormat, ToolOutputCompressionSettings } from '../config';
 import { t } from '../i18n';
 import { logger } from '../logger';
 import { updateStatusBarFromUsage } from '../statusBar';
@@ -15,6 +17,7 @@ import type {
 	StreamCallbacks,
 	UserModelConfig,
 } from '../types';
+import { AUTOPILOT_COMPAT_PROMPT } from './convert';
 
 type ResponsesConfigurationSchema = { readonly properties: Record<string, unknown> };
 type ResponsesVerbosity = 'low' | 'medium' | 'high';
@@ -38,6 +41,8 @@ type HandleResponsesChatRequestArgs = {
 	maxTokens: number | undefined;
 	thinkingEffort: string | undefined;
 	unsupportedPreviousResponseIdBaseUrls: Set<string>;
+	previousResponseIdsByConversation: Map<string, string>;
+	reportedCompressionNotices: Set<string>;
 	updateCharsPerToken: (observedRatio: number) => void;
 };
 
@@ -64,7 +69,233 @@ type ResponsesStatefulMarkerLocation = {
 	index: number;
 };
 
+type ResponsesConversationState = {
+	key: string;
+	previousResponseId?: string;
+	markerIndex?: number;
+	source: 'marker' | 'memory' | 'none';
+};
+
+type ToolOutputCompressionStats = {
+	imageOutputsTranscoded: number;
+	imageOutputsCompressed: number;
+	imageBytesCompressed: number;
+	imageBytesAfterCompression: number;
+	imageOutputsOmitted: number;
+	toolOutputsTruncated: number;
+	toolCharsOmitted: number;
+	structuredOutputsSummarized: number;
+};
+
+type ToolImageResult = {
+	mimeType: string;
+	dataUrl: string;
+	originalBytes: number;
+	compressedBytes: number;
+	compressed: boolean;
+	note: string;
+};
+
+type ToolOutputCollectionResult = {
+	text: string;
+	images: ToolImageResult[];
+	stats: ToolOutputCompressionStats;
+};
+
+type ToolOutputPolicy = {
+	maxChars: number;
+	headRatio: number;
+};
+
+type EncodedToolImageFormat = Exclude<ToolImageOutputFormat, 'auto'>;
+
+type ToolImageEncodingAttempt = {
+	label: string;
+	maxEdge?: number;
+	quality: number;
+};
+
+type EffectiveToolOutputCompressionSettings = ToolOutputCompressionSettings & {
+	effectiveCompressImages: boolean;
+	effectiveTruncateLongToolOutputs: boolean;
+	effectiveSummarizeStructuredOutputs: boolean;
+	effectiveUseToolTypePolicies: boolean;
+	effectiveShowCompressionNotice: boolean;
+};
+
+type StructuredToolOutputSummary = {
+	text: string;
+	summarized: boolean;
+};
+
+type ResponsesMessagesConversion = {
+	input: ResponsesInputItem[];
+	instructions?: string;
+	compressionStats: ToolOutputCompressionStats;
+};
+
 const RESPONSES_STATEFUL_MARKER_MIME = 'application/vnd.mimo-copilot.responses-stateful-marker';
+const INCLUDE_RESPONSES_REASONING_IN_REQUEST = false;
+const LOG_RESPONSE_BODY_MAX = 1200;
+const DEFAULT_MAX_TOOL_OUTPUT_CHARS = 8000;
+const TRANSIENT_NOTICE_PREFIX = '\u2063MiMo 提示：';
+
+function resolveToolOutputCompressionSettings(): EffectiveToolOutputCompressionSettings {
+	const settings = getToolOutputCompressionSettings();
+	return {
+		...settings,
+		effectiveCompressImages: settings.enabled && settings.compressImages,
+		effectiveTruncateLongToolOutputs: settings.enabled && settings.truncateLongToolOutputs,
+		effectiveSummarizeStructuredOutputs: settings.enabled && settings.summarizeStructuredOutputs,
+		effectiveUseToolTypePolicies: settings.enabled && settings.truncateLongToolOutputs && settings.useToolTypePolicies,
+		effectiveShowCompressionNotice: settings.enabled && settings.showCompressionNotice,
+	};
+}
+
+function getToolOutputPolicy(
+	toolName: string | undefined,
+	settings: EffectiveToolOutputCompressionSettings,
+): ToolOutputPolicy {
+	if (!settings.effectiveTruncateLongToolOutputs) {
+		return { maxChars: Number.MAX_SAFE_INTEGER, headRatio: 0.45 };
+	}
+	const defaultPolicy = { maxChars: settings.maxToolOutputChars, headRatio: 0.45 };
+	if (!settings.effectiveUseToolTypePolicies) {
+		return defaultPolicy;
+	}
+	const normalized = toolName?.toLowerCase() ?? '';
+	if (normalized === 'run_in_terminal' || normalized === 'get_terminal_output') {
+		return { maxChars: Math.max(settings.maxToolOutputChars, 12000), headRatio: 0.25 };
+	}
+	if (normalized === 'get_errors' || normalized.includes('diagnostic')) {
+		return { maxChars: Math.max(settings.maxToolOutputChars, 20000), headRatio: 0.3 };
+	}
+	if (normalized === 'read_file' || normalized === 'grep_search' || normalized === 'semantic_search') {
+		return { maxChars: Math.max(settings.maxToolOutputChars, 12000), headRatio: 0.5 };
+	}
+	if (normalized === 'apply_patch' || normalized === 'create_file' || normalized === 'edit_notebook_file') {
+		return { maxChars: Math.max(settings.maxToolOutputChars, 10000), headRatio: 0.45 };
+	}
+	return defaultPolicy;
+}
+
+function createEmptyToolOutputCompressionStats(): ToolOutputCompressionStats {
+	return {
+		imageOutputsTranscoded: 0,
+		imageOutputsCompressed: 0,
+		imageBytesCompressed: 0,
+		imageBytesAfterCompression: 0,
+		imageOutputsOmitted: 0,
+		toolOutputsTruncated: 0,
+		toolCharsOmitted: 0,
+		structuredOutputsSummarized: 0,
+	};
+}
+
+function addToolOutputCompressionStats(
+	target: ToolOutputCompressionStats,
+	source: ToolOutputCompressionStats,
+): void {
+	target.imageOutputsCompressed += source.imageOutputsCompressed;
+	target.imageOutputsTranscoded += source.imageOutputsTranscoded;
+	target.imageBytesCompressed += source.imageBytesCompressed;
+	target.imageBytesAfterCompression += source.imageBytesAfterCompression;
+	target.imageOutputsOmitted += source.imageOutputsOmitted;
+	target.toolOutputsTruncated += source.toolOutputsTruncated;
+	target.toolCharsOmitted += source.toolCharsOmitted;
+	target.structuredOutputsSummarized += source.structuredOutputsSummarized;
+}
+
+function hasToolOutputCompression(stats: ToolOutputCompressionStats): boolean {
+	return stats.imageOutputsTranscoded > 0
+		|| stats.imageOutputsCompressed > 0
+		|| stats.imageOutputsOmitted > 0
+		|| stats.toolOutputsTruncated > 0
+		|| stats.structuredOutputsSummarized > 0;
+}
+
+function estimateToolOutputCompressionSavedChars(stats: ToolOutputCompressionStats): number {
+	const imageBytesSaved = Math.max(0, stats.imageBytesCompressed - stats.imageBytesAfterCompression);
+	return stats.toolCharsOmitted + Math.ceil(imageBytesSaved * 4 / 3);
+}
+
+function formatByteSize(bytes: number): string {
+	if (bytes < 1024) {
+		return `${bytes} B`;
+	}
+	const kib = bytes / 1024;
+	if (kib < 1024) {
+		return `${kib.toFixed(kib >= 10 ? 0 : 1)} KB`;
+	}
+	const mib = kib / 1024;
+	return `${mib.toFixed(mib >= 10 ? 1 : 2)} MB`;
+}
+
+function formatToolOutputCompressionNotice(stats: ToolOutputCompressionStats): string | undefined {
+	if (!hasToolOutputCompression(stats)) {
+		return undefined;
+	}
+
+	const parts: string[] = [];
+	const forcedParts: string[] = [];
+	if (stats.imageOutputsTranscoded > 0) {
+		parts.push(
+			`图片转码 ${stats.imageOutputsTranscoded} 次`
+			+ `（${formatByteSize(stats.imageBytesCompressed)} → ${formatByteSize(stats.imageBytesAfterCompression)}）`,
+		);
+	}
+	if (stats.imageOutputsCompressed > 0) {
+		parts.push(
+			`图片缩放压缩 ${stats.imageOutputsCompressed} 次`
+			+ `（${formatByteSize(stats.imageBytesCompressed)} → ${formatByteSize(stats.imageBytesAfterCompression)}）`,
+		);
+	}
+	if (stats.imageOutputsOmitted > 0) {
+		parts.push(`图片移除 ${stats.imageOutputsOmitted} 次`);
+		forcedParts.push(`**MiMo: ${stats.imageOutputsOmitted} 张图片过大，已被 mimo-for-copilot 移除，未发送给模型。**`);
+	}
+	if (stats.structuredOutputsSummarized > 0) {
+		parts.push(`结构化摘要 ${stats.structuredOutputsSummarized} 次`);
+	}
+	if (stats.toolOutputsTruncated > 0) {
+		parts.push(
+			`长输出截断 ${stats.toolOutputsTruncated} 次`
+			+ `（-${stats.toolCharsOmitted} 字符）`,
+		);
+	}
+
+	return `${TRANSIENT_NOTICE_PREFIX}${[...forcedParts, parts.join(' · ')].filter(Boolean).join(' · ')}\n\n`;
+}
+
+function formatForcedToolOutputCompressionNotice(stats: ToolOutputCompressionStats): string | undefined {
+	if (stats.imageOutputsOmitted <= 0) {
+		return undefined;
+	}
+	return `${TRANSIENT_NOTICE_PREFIX}**MiMo: ${stats.imageOutputsOmitted} 张图片过大，已被 mimo-for-copilot 移除，未发送给模型。**\n\n`;
+}
+
+function stripTransientNoticeText(text: string): string {
+	if (!text) {
+		return text;
+	}
+	return text
+		.replace(/^\u2063MiMo 提示：.*(?:\r?\n){0,2}/gm, '')
+		.replace(/^(\s*\r?\n){3,}/gm, '\n\n')
+		.trim();
+}
+
+function getToolOutputCompressionNoticeKey(stats: ToolOutputCompressionStats): string {
+	return [
+		stats.imageOutputsTranscoded,
+		stats.imageOutputsCompressed,
+		Math.round(stats.imageBytesCompressed / 1024),
+		Math.round(stats.imageBytesAfterCompression / 1024),
+		stats.imageOutputsOmitted,
+		stats.toolOutputsTruncated,
+		Math.round(stats.toolCharsOmitted / 1000),
+		stats.structuredOutputsSummarized,
+	].join(':');
+}
 
 function previewText(text: string, maxLength = 100): string {
 	const normalized = text.replace(/\s+/g, ' ').trim();
@@ -72,6 +303,424 @@ function previewText(text: string, maxLength = 100): string {
 		return '';
 	}
 	return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}…` : normalized;
+}
+
+function generateResponsesItemId(prefix: string): string {
+	return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function previewJson(value: unknown, maxLength = LOG_RESPONSE_BODY_MAX): string {
+	try {
+		const json = JSON.stringify(value);
+		return json.length > maxLength ? `${json.slice(0, maxLength)}…` : json;
+	} catch {
+		return '[unserializable]';
+	}
+}
+
+function summarizeResponsesRequest(request: ResponsesRequest): Record<string, unknown> {
+	const itemTypes: Record<string, number> = {};
+	const messageStatuses: Record<string, number> = {};
+	let functionCalls = 0;
+	let functionOutputs = 0;
+	let reasoningItems = 0;
+	let imageParts = 0;
+	let textChars = 0;
+
+	for (const item of request.input) {
+		itemTypes[item.type] = (itemTypes[item.type] ?? 0) + 1;
+		if (item.type === 'message') {
+			if (item.status) {
+				messageStatuses[item.status] = (messageStatuses[item.status] ?? 0) + 1;
+			}
+			for (const part of item.content) {
+				if (part.type === 'input_image') {
+					imageParts += 1;
+				}
+				textChars += part.text?.length ?? 0;
+			}
+			continue;
+		}
+		if (item.type === 'function_call') {
+			functionCalls += 1;
+			textChars += item.name.length + item.arguments.length;
+			continue;
+		}
+		if (item.type === 'function_call_output') {
+			functionOutputs += 1;
+			textChars += item.output.length;
+			continue;
+		}
+		reasoningItems += 1;
+		for (const summary of item.summary) {
+			textChars += summary.text.length;
+		}
+	}
+
+	return {
+		model: request.model,
+		stream: request.stream,
+		inputItems: request.input.length,
+		itemTypes,
+		messageStatuses,
+		functionCalls,
+		functionOutputs,
+		reasoningItems,
+		imageParts,
+		textChars,
+		instructionsChars: request.instructions?.length ?? 0,
+		hasTools: !!request.tools?.length,
+		toolCount: request.tools?.length ?? 0,
+		toolChoice: request.tool_choice,
+		hasReasoning: !!request.reasoning,
+		reasoning: request.reasoning,
+		hasTextConfig: !!request.text,
+		text: request.text,
+		hasPreviousResponseId: !!request.previous_response_id,
+		hasPromptCacheKey: !!request.prompt_cache_key,
+	};
+}
+
+function sanitizeResponsesRequestForLog(request: ResponsesRequest): Record<string, unknown> {
+	return {
+		...request,
+		input: request.input.map((item) => {
+			if (item.type === 'message') {
+				return {
+					...item,
+					content: item.content.map((part) => ({
+						...part,
+						text: part.text ? previewText(part.text, 240) : undefined,
+						image_url: part.image_url ? `[image:${part.image_url.length} chars]` : undefined,
+					})),
+				};
+			}
+			if (item.type === 'function_call') {
+				return {
+					...item,
+					arguments: previewText(item.arguments, 500),
+				};
+			}
+			if (item.type === 'function_call_output') {
+				return {
+					...item,
+					output: previewText(item.output, 500),
+				};
+			}
+			return {
+				...item,
+				summary: item.summary.map((summary) => ({
+					...summary,
+					text: previewText(summary.text, 240),
+				})),
+			};
+		}),
+		instructions: request.instructions ? previewText(request.instructions, 500) : undefined,
+		tools: request.tools?.map((tool) => ({
+			...tool,
+			description: tool.description ? previewText(tool.description, 160) : undefined,
+		})),
+	};
+}
+
+function isToolResultPartLike(value: unknown): value is { callId: string; content?: readonly unknown[] } {
+	if (!value || typeof value !== 'object') {
+		return false;
+	}
+	const record = value as Record<string, unknown>;
+	return typeof record.callId === 'string' && 'content' in record;
+}
+
+function summarizeStructuredToolOutput(
+	value: unknown,
+	settings: EffectiveToolOutputCompressionSettings,
+): StructuredToolOutputSummary | undefined {
+	if (!value || typeof value !== 'object') {
+		return undefined;
+	}
+	if (!settings.effectiveSummarizeStructuredOutputs) {
+		try {
+			return { text: JSON.stringify(value), summarized: false };
+		} catch {
+			return undefined;
+		}
+	}
+	let summarized = false;
+	try {
+		const summary = JSON.stringify(value, (_key, nestedValue) => {
+			if (typeof nestedValue === 'string' && nestedValue.length > 500) {
+				summarized = true;
+				return `${nestedValue.slice(0, 240)}…[${nestedValue.length - 480} chars omitted]…${nestedValue.slice(-240)}`;
+			}
+			if (Array.isArray(nestedValue) && nestedValue.length > 8) {
+				summarized = true;
+				return [
+					...nestedValue.slice(0, 4),
+					`[${nestedValue.length - 8} array items omitted]`,
+					...nestedValue.slice(-4),
+				];
+			}
+			return nestedValue;
+		});
+		if (summary.length > settings.maxToolOutputChars) {
+			summarized = true;
+			const half = Math.floor(settings.maxToolOutputChars / 2);
+			return {
+				text: `${summary.slice(0, half)}\n[structured tool output summarized by mimo-for-copilot]\n${summary.slice(-half)}`,
+				summarized,
+			};
+		}
+		return { text: summary, summarized };
+	} catch {
+		return undefined;
+	}
+}
+
+async function compressToolImage(
+	item: vscode.LanguageModelDataPart,
+	settings: EffectiveToolOutputCompressionSettings,
+): Promise<ToolImageResult | undefined> {
+	const originalBytes = item.data.byteLength;
+	const originalBuffer = Buffer.from(item.data);
+	if (!settings.effectiveCompressImages && !settings.keepOriginalImagesWhenDisabled) {
+		return undefined;
+	}
+	if (!settings.effectiveCompressImages || originalBytes <= settings.smallToolImageBytes) {
+		return {
+			mimeType: item.mimeType,
+			dataUrl: `data:${item.mimeType};base64,${originalBuffer.toString('base64')}`,
+			originalBytes,
+			compressedBytes: originalBytes,
+			compressed: false,
+			note: settings.effectiveCompressImages ? 'kept original small tool image' : 'kept original tool image; image compression disabled',
+		};
+	}
+
+	let metadata: sharp.Metadata | undefined;
+	try {
+		metadata = await sharp(originalBuffer, { failOn: 'none' }).metadata();
+	} catch {
+		metadata = undefined;
+	}
+
+	const formatCandidates = getToolImageFormatCandidates(item.mimeType, metadata, settings.imageOutputFormat);
+	const hasAlpha = !!metadata?.hasAlpha;
+	let lastError: unknown;
+
+	for (const format of formatCandidates) {
+		try {
+			const output = await encodeToolImageVariant(
+				originalBuffer,
+				format,
+				{ label: 'convert-only', quality: settings.primaryImageQuality },
+				hasAlpha,
+			);
+			if (output.byteLength <= settings.maxCompressedImageBytes && output.byteLength < originalBytes) {
+				return {
+					mimeType: getToolImageMimeType(format),
+					dataUrl: `data:${getToolImageMimeType(format)};base64,${output.toString('base64')}`,
+					originalBytes,
+					compressedBytes: output.byteLength,
+					compressed: true,
+					note: `converted tool image format=${format} quality=${settings.primaryImageQuality} without resize`,
+				};
+			}
+		} catch (error) {
+			lastError = error;
+		}
+	}
+
+	if (originalBytes <= settings.maxCompressedImageBytes) {
+		return {
+			mimeType: item.mimeType,
+			dataUrl: `data:${item.mimeType};base64,${originalBuffer.toString('base64')}`,
+			originalBytes,
+			compressedBytes: originalBytes,
+			compressed: false,
+			note: 'kept original tool image; format conversion did not reduce size and original already fit target budget',
+		};
+	}
+
+	for (const attempt of [
+		{ label: 'primary-resize', maxEdge: settings.primaryImageMaxEdge, quality: settings.primaryImageQuality },
+		{ label: 'fallback-resize', maxEdge: settings.fallbackImageMaxEdge, quality: settings.fallbackImageQuality },
+	] satisfies ToolImageEncodingAttempt[]) {
+		for (const format of formatCandidates) {
+			try {
+				const output = await encodeToolImageVariant(originalBuffer, format, attempt, hasAlpha);
+				if (output.byteLength <= settings.maxCompressedImageBytes) {
+					return {
+						mimeType: getToolImageMimeType(format),
+						dataUrl: `data:${getToolImageMimeType(format)};base64,${output.toString('base64')}`,
+						originalBytes,
+						compressedBytes: output.byteLength,
+						compressed: true,
+						note: `compressed tool image stage=${attempt.label} format=${format} maxEdge=${attempt.maxEdge} quality=${attempt.quality}`,
+					};
+				}
+			} catch (error) {
+				lastError = error;
+			}
+		}
+	}
+
+	if (lastError) {
+		logger.warn(`[Responses] tool image compression failed mime=${item.mimeType} bytes=${originalBytes}`, lastError);
+	}
+
+	return undefined;
+}
+
+function getToolImageFormatCandidates(
+	mimeType: string,
+	metadata: sharp.Metadata | undefined,
+	preferredFormat: ToolImageOutputFormat,
+): EncodedToolImageFormat[] {
+	if (preferredFormat === 'jpeg' || preferredFormat === 'webp' || preferredFormat === 'png') {
+		return [preferredFormat];
+	}
+	const normalizedMime = mimeType.toLowerCase();
+	if (metadata?.hasAlpha || normalizedMime === 'image/png') {
+		return ['webp', 'jpeg', 'png'];
+	}
+	if (normalizedMime === 'image/webp') {
+		return ['webp', 'jpeg'];
+	}
+	return ['jpeg', 'webp'];
+}
+
+function getToolImageMimeType(format: EncodedToolImageFormat): string {
+	switch (format) {
+		case 'jpeg':
+			return 'image/jpeg';
+		case 'webp':
+			return 'image/webp';
+		case 'png':
+			return 'image/png';
+	}
+}
+
+async function encodeToolImageVariant(
+	originalBuffer: Buffer,
+	format: EncodedToolImageFormat,
+	attempt: ToolImageEncodingAttempt,
+	hasAlpha: boolean,
+): Promise<Buffer> {
+	let pipeline = sharp(originalBuffer, { failOn: 'none' }).rotate();
+	if (attempt.maxEdge) {
+		pipeline = pipeline.resize({
+			width: attempt.maxEdge,
+			height: attempt.maxEdge,
+			fit: 'inside',
+			withoutEnlargement: true,
+		});
+	}
+	switch (format) {
+		case 'jpeg':
+			if (hasAlpha) {
+				pipeline = pipeline.flatten({ background: '#ffffff' });
+			}
+			return pipeline.jpeg({ quality: attempt.quality, mozjpeg: true }).toBuffer();
+		case 'webp':
+			return pipeline.webp({ quality: attempt.quality, alphaQuality: attempt.quality, effort: 6 }).toBuffer();
+		case 'png':
+			return pipeline.png({
+				compressionLevel: 9,
+				palette: true,
+				quality: attempt.quality,
+				effort: 8,
+				adaptiveFiltering: true,
+			}).toBuffer();
+	}
+}
+
+async function collectToolResultText(
+	part: { content?: readonly unknown[] },
+	toolName?: string,
+	settings = resolveToolOutputCompressionSettings(),
+): Promise<ToolOutputCollectionResult> {
+	let text = '';
+	const images: ToolImageResult[] = [];
+	const stats = createEmptyToolOutputCompressionStats();
+	const policy = getToolOutputPolicy(toolName, settings);
+	for (const item of part.content ?? []) {
+		if (item instanceof vscode.LanguageModelTextPart) {
+			text += item.value;
+			continue;
+		}
+		if (typeof item === 'string') {
+			text += item;
+			continue;
+		}
+		if (item instanceof vscode.LanguageModelDataPart) {
+			if (item.mimeType === 'cache_control') {
+				continue;
+			}
+			if (item.mimeType.startsWith('image/')) {
+				const compressed = await compressToolImage(item, settings);
+				if (compressed) {
+					images.push(compressed);
+					if (compressed.compressed) {
+						if (compressed.note.startsWith('converted tool image')) {
+							stats.imageOutputsTranscoded += 1;
+						} else {
+							stats.imageOutputsCompressed += 1;
+						}
+						stats.imageBytesCompressed += compressed.originalBytes;
+						stats.imageBytesAfterCompression += compressed.compressedBytes;
+					}
+					text += `[${item.mimeType} tool image ${compressed.note}; original=${compressed.originalBytes} bytes; sent=${compressed.compressedBytes} bytes as ${compressed.mimeType}]`;
+				} else {
+					stats.imageOutputsOmitted += 1;
+					stats.imageBytesCompressed += item.data.byteLength;
+					text += `[${item.mimeType} tool image omitted after compression attempts: ${item.data.byteLength} bytes]`;
+				}
+				continue;
+			}
+		}
+		const structuredSummary = summarizeStructuredToolOutput(item, settings);
+		if (structuredSummary) {
+			if (structuredSummary.summarized) {
+				stats.structuredOutputsSummarized += 1;
+			}
+			text += structuredSummary.text;
+			continue;
+		}
+		try {
+			text += JSON.stringify(item);
+		} catch {
+			// Ignore non-serializable tool output fragments.
+		}
+	}
+	const truncated = truncateToolOutput(text, policy);
+	addToolOutputCompressionStats(stats, truncated.stats);
+	return {
+		text: truncated.text,
+		images,
+		stats,
+	};
+}
+
+function truncateToolOutput(
+	text: string,
+	policy: ToolOutputPolicy = { maxChars: DEFAULT_MAX_TOOL_OUTPUT_CHARS, headRatio: 0.45 },
+): ToolOutputCollectionResult {
+	const stats = createEmptyToolOutputCompressionStats();
+	if (text.length <= policy.maxChars) {
+		return { text, images: [], stats };
+	}
+	const omittedChars = text.length - policy.maxChars;
+	const headChars = Math.floor(policy.maxChars * policy.headRatio);
+	const tailChars = policy.maxChars - headChars;
+	stats.toolOutputsTruncated = 1;
+	stats.toolCharsOmitted = omittedChars;
+	return {
+		text: `${text.slice(0, headChars)}`
+			+ `\n\n[tool output truncated by mimo-for-copilot: ${omittedChars} chars omitted; showing first ${headChars} and last ${tailChars} chars]\n\n`
+			+ text.slice(-tailChars),
+		images: [],
+		stats,
+	};
 }
 
 class ResponsesHttpError extends Error {
@@ -158,30 +807,51 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 	const userTopP = args.userModelDef?.topP ?? args.modelDef?.topP;
 	const statefulModelId = getApiModelId(args.modelInfo.id);
 	const normalizedBaseUrl = args.baseUrl.replace(/\/+$/, '');
-	const fullMessages = convertResponsesMessages(args.messages);
+	const fullMessages = await convertResponsesMessages(args.messages);
 	const marker = findLastResponsesStatefulMarker(statefulModelId, args.messages);
-	let deltaMessages: { input: ResponsesInputItem[]; instructions?: string } | undefined;
-	if (marker && marker.index >= 0 && marker.index < args.messages.length - 1) {
-		deltaMessages = convertResponsesMessages(args.messages.slice(marker.index + 1));
+	const conversationState = resolveResponsesConversationState(
+		statefulModelId,
+		normalizedBaseUrl,
+		args.messages,
+		marker,
+		args.previousResponseIdsByConversation,
+	);
+	let deltaMessages: ResponsesMessagesConversion | undefined;
+	if (conversationState.markerIndex !== undefined && conversationState.markerIndex >= 0 && conversationState.markerIndex < args.messages.length - 1) {
+		deltaMessages = await convertResponsesMessages(args.messages.slice(conversationState.markerIndex + 1));
+	} else if (conversationState.previousResponseId && args.messages.length > 0) {
+		deltaMessages = await convertResponsesMessages(args.messages.slice(-1));
 	}
 	const canUsePreviousResponseId =
-		!!marker?.marker
+		!!conversationState.previousResponseId
 		&& !args.unsupportedPreviousResponseIdBaseUrls.has(normalizedBaseUrl)
 		&& !!deltaMessages
 		&& deltaMessages.input.length > 0;
+	logger.debug(
+		`[Responses] stateful source=${conversationState.source}`
+		+ ` hasPrevious=${conversationState.previousResponseId ? 'yes' : 'no'}`
+		+ ` markerIndex=${conversationState.markerIndex ?? 'n/a'}`
+		+ ` deltaItems=${deltaMessages?.input.length ?? 0}`,
+	);
 	const requestMessages = canUsePreviousResponseId && deltaMessages
 		? {
 			input: deltaMessages.input,
 			instructions: deltaMessages.instructions ?? fullMessages.instructions,
+			compressionStats: deltaMessages.compressionStats,
 		}
 		: fullMessages;
 	const responsesTools = convertResponsesTools(args.options.tools);
+	const isAutopilotLike = args.options.tools?.some((tool) => tool.name === 'task_complete') ?? false;
+	const requestInstructions = isAutopilotLike
+		? [AUTOPILOT_COMPAT_PROMPT, requestMessages.instructions].filter(Boolean).join('\n\n')
+		: requestMessages.instructions;
+	const requestChars = countResponsesRequestChars(requestMessages.input, requestInstructions);
 	const responsesVerbosity = getConfiguredResponsesVerbosity(
 		args.options as ResponsesModelConfigurationOptions,
 		args.modelInfo.id,
 	);
 	const normalizedEffort = normalizeResponsesEffort(args.modelInfo.id, args.thinkingEffort);
-	const responseRequestChars = countResponsesRequestChars(requestMessages.input, requestMessages.instructions);
+	const compressionSettings = resolveToolOutputCompressionSettings();
 	const client = new ResponsesClient(args.baseUrl, args.apiKey);
 	let currentThinkingId: string | null = null;
 
@@ -210,6 +880,7 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 		model: getApiModelId(args.modelInfo.id),
 		input,
 		stream: true,
+		prompt_cache_key: `mimo-copilot-${statefulModelId}`,
 		...(instructions ? { instructions } : {}),
 		...(typeof args.maxTokens === 'number' && args.maxTokens > 0 ? { max_output_tokens: args.maxTokens } : {}),
 		...(userTemp !== undefined ? { temperature: userTemp } : {}),
@@ -218,7 +889,6 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 			? {
 				tools: responsesTools.tools,
 				tool_choice: responsesTools.toolChoice,
-				parallel_tool_calls: true,
 			}
 			: {}),
 		...(responsesVerbosity ? { text: { verbosity: responsesVerbosity } } : {}),
@@ -234,7 +904,11 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 	});
 
 	let responseId: string | undefined;
-	const streamWithCallbacks = async (request: ResponsesRequest, requestChars: number): Promise<void> => {
+	const streamWithCallbacks = async (
+		request: ResponsesRequest,
+		requestChars: number,
+		stats: ToolOutputCompressionStats,
+	): Promise<void> => {
 		return new Promise<void>((resolve, reject) => {
 			client.stream(
 				request,
@@ -266,13 +940,28 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 						resolve();
 					},
 					onUsage: (usage) => {
-						if (requestChars > 0 && usage.prompt_tokens > 0) {
-							const observedRatio = requestChars / usage.prompt_tokens;
-							if (Number.isFinite(observedRatio) && observedRatio > 0) {
-								args.updateCharsPerToken(observedRatio);
-							}
+						let observedRatio = requestChars > 0 && usage.prompt_tokens > 0
+							? requestChars / usage.prompt_tokens
+							: undefined;
+						if (typeof observedRatio === 'number' && Number.isFinite(observedRatio) && observedRatio > 0) {
+							args.updateCharsPerToken(observedRatio);
 						}
-						updateStatusBarFromUsage(usage, args.modelInfo.maxInputTokens);
+						const savedCharsEstimate = estimateToolOutputCompressionSavedChars(stats);
+						const charsPerToken = observedRatio && Number.isFinite(observedRatio) && observedRatio > 0
+							? observedRatio
+							: 4;
+						const beforePromptTokensEstimate = savedCharsEstimate > 0
+							? usage.prompt_tokens + Math.ceil(savedCharsEstimate / charsPerToken)
+							: undefined;
+						updateStatusBarFromUsage(usage, args.modelInfo.maxInputTokens, {
+							beforePromptTokensEstimate,
+							afterPromptTokens: usage.prompt_tokens,
+							ratio: beforePromptTokensEstimate
+								? beforePromptTokensEstimate / Math.max(1, usage.prompt_tokens)
+								: 1,
+							description: beforePromptTokensEstimate ? 'Responses tool-output compression' : undefined,
+							notice: 'Compression notices can be turned off in the Provider Configuration UI.',
+						});
 					},
 				},
 				args.token,
@@ -282,12 +971,47 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 
 	let request = buildRequest(
 		requestMessages.input,
-		requestMessages.instructions,
-		canUsePreviousResponseId ? marker?.marker : undefined,
+		requestInstructions,
+		canUsePreviousResponseId ? conversationState.previousResponseId : undefined,
 	);
+	let reportedCompressionNotice = false;
+	const reportCompressionNotice = (stats: ToolOutputCompressionStats) => {
+		if (reportedCompressionNotice) {
+			return;
+		}
+		const notice = formatToolOutputCompressionNotice(stats);
+		if (!notice) {
+			return;
+		}
+		const noticeKey = getToolOutputCompressionNoticeKey(stats);
+		if (args.reportedCompressionNotices.has(noticeKey)) {
+			reportedCompressionNotice = true;
+			return;
+		}
+		args.reportedCompressionNotices.add(noticeKey);
+		logger.info(
+			`[Responses] tool output compression notice imageOutputs=${stats.imageOutputsCompressed}`
+			+ ` imageBytes=${stats.imageBytesCompressed}`
+			+ ` imageBytesAfter=${stats.imageBytesAfterCompression}`
+			+ ` imageOmitted=${stats.imageOutputsOmitted}`
+			+ ` truncatedOutputs=${stats.toolOutputsTruncated}`
+			+ ` omittedChars=${stats.toolCharsOmitted}`
+			+ ` structuredSummaries=${stats.structuredOutputsSummarized}`,
+		);
+		const visibleNotice = compressionSettings.effectiveShowCompressionNotice
+			? notice
+			: formatForcedToolOutputCompressionNotice(stats);
+		if (visibleNotice) {
+			args.progress.report(
+				new vscode.LanguageModelTextPart(visibleNotice),
+			);
+		}
+		reportedCompressionNotice = true;
+	};
 
 	try {
-		await streamWithCallbacks(request, responseRequestChars);
+		reportCompressionNotice(requestMessages.compressionStats);
+		await streamWithCallbacks(request, requestChars, requestMessages.compressionStats);
 	} catch (error) {
 		const shouldRetryWithoutPreviousResponseId =
 			canUsePreviousResponseId
@@ -302,31 +1026,40 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 
 		args.unsupportedPreviousResponseIdBaseUrls.add(normalizedBaseUrl);
 		responseId = undefined;
-		request = buildRequest(fullMessages.input, fullMessages.instructions);
+		const fullInstructions = isAutopilotLike
+			? [AUTOPILOT_COMPAT_PROMPT, fullMessages.instructions].filter(Boolean).join('\n\n')
+			: fullMessages.instructions;
+		request = buildRequest(fullMessages.input, fullInstructions);
+		reportCompressionNotice(fullMessages.compressionStats);
 		await streamWithCallbacks(
 			request,
-			countResponsesRequestChars(fullMessages.input, fullMessages.instructions),
+			countResponsesRequestChars(fullMessages.input, fullInstructions),
+			fullMessages.compressionStats,
 		);
 	}
 
 	if (responseId) {
+		args.previousResponseIdsByConversation.set(conversationState.key, responseId);
 		args.progress.report(
 			createResponsesStatefulMarkerPart(statefulModelId, responseId) as unknown as vscode.LanguageModelResponsePart,
 		);
 	}
 }
 
-function convertResponsesMessages(
+async function convertResponsesMessages(
 	messages: readonly vscode.LanguageModelChatRequestMessage[],
-): { input: ResponsesInputItem[]; instructions?: string } {
+): Promise<ResponsesMessagesConversion> {
 	const input: ResponsesInputItem[] = [];
 	const instructionParts: string[] = [];
+	const compressionStats = createEmptyToolOutputCompressionStats();
+	const toolNamesByCallId = new Map<string, string>();
+	const compressionSettings = resolveToolOutputCompressionSettings();
 
 	for (const message of messages) {
 		const textParts: string[] = [];
 		const imageParts: vscode.LanguageModelDataPart[] = [];
 		const toolCalls: DeepSeekToolCall[] = [];
-		const toolResults: Array<{ callId: string; content: string }> = [];
+		const toolResults: Array<{ callId: string; content: string; images: ToolImageResult[] }> = [];
 		const thinkingParts: string[] = [];
 
 		for (const part of message.content) {
@@ -335,6 +1068,7 @@ function convertResponsesMessages(
 			} else if (part instanceof vscode.LanguageModelDataPart && part.mimeType.startsWith('image/')) {
 				imageParts.push(part);
 			} else if (part instanceof vscode.LanguageModelToolCallPart) {
+				toolNamesByCallId.set(part.callId, part.name);
 				toolCalls.push({
 					id: part.callId,
 					type: 'function',
@@ -343,30 +1077,64 @@ function convertResponsesMessages(
 						arguments: JSON.stringify(part.input ?? {}),
 					},
 				});
-			} else if (part instanceof vscode.LanguageModelToolResultPart) {
-				let toolContent = '';
-				for (const item of part.content) {
-					if (item instanceof vscode.LanguageModelTextPart) {
-						toolContent += item.value;
-					}
-				}
+			} else if (isToolResultPartLike(part)) {
+				const toolContent = await collectToolResultText(
+					part,
+					toolNamesByCallId.get(part.callId),
+					compressionSettings,
+				);
+				addToolOutputCompressionStats(compressionStats, toolContent.stats);
 				toolResults.push({
 					callId: part.callId,
-					content: toolContent || JSON.stringify(part.content),
+					content: toolContent.text || ' ',
+					images: toolContent.images,
 				});
-			} else if (part instanceof vscode.LanguageModelThinkingPart) {
+			} else if (INCLUDE_RESPONSES_REASONING_IN_REQUEST && part instanceof vscode.LanguageModelThinkingPart) {
 				const value = Array.isArray(part.value) ? part.value.join('') : part.value;
 				thinkingParts.push(value);
 			}
 		}
 
 		const text = textParts.join('').trim();
+		const sanitizedText = stripTransientNoticeText(text);
 		const thinking = thinkingParts.join('').trim();
+
+		for (const toolResult of toolResults) {
+			if (!toolResult.callId) {
+				logger.warn('[Responses] skip tool result without callId');
+				continue;
+			}
+			input.push({
+				type: 'function_call_output',
+				id: generateResponsesItemId('fco'),
+				call_id: toolResult.callId,
+				output: toolResult.content,
+				status: 'completed',
+			});
+			if (toolResult.images.length > 0) {
+				input.push({
+					type: 'message',
+					id: generateResponsesItemId('msg'),
+					role: 'user',
+					content: [
+						{
+							type: 'input_text',
+							text: `Compressed image output for tool call ${toolResult.callId}.`,
+						},
+						...toolResult.images.map((image) => ({
+							type: 'input_image' as const,
+							image_url: image.dataUrl,
+						})),
+					],
+					status: 'completed',
+				});
+			}
+		}
 
 		if (message.role === vscode.LanguageModelChatMessageRole.User) {
 			const content: ResponsesMessageContentPart[] = [];
-			if (text) {
-				content.push({ type: 'input_text', text });
+			if (sanitizedText) {
+				content.push({ type: 'input_text', text: sanitizedText });
 			}
 			for (const imagePart of imageParts) {
 				const dataUrl = `data:${imagePart.mimeType};base64,${Buffer.from(imagePart.data).toString('base64')}`;
@@ -375,6 +1143,7 @@ function convertResponsesMessages(
 			if (content.length > 0) {
 				input.push({
 					type: 'message',
+					id: generateResponsesItemId('msg'),
 					role: 'user',
 					content,
 					status: 'completed',
@@ -384,18 +1153,19 @@ function convertResponsesMessages(
 		}
 
 		if (message.role === vscode.LanguageModelChatMessageRole.Assistant) {
-			if (text) {
+			if (sanitizedText) {
 				input.push({
 					type: 'message',
+					id: generateResponsesItemId('msg'),
 					role: 'assistant',
-					phase: toolCalls.length > 0 ? 'commentary' : 'final_answer',
-					content: [{ type: 'output_text', text }],
+					content: [{ type: 'output_text', text: sanitizedText }],
 					status: 'completed',
 				});
 			}
 			if (thinking) {
 				input.push({
 					type: 'reasoning',
+					id: generateResponsesItemId('tk'),
 					summary: [{ type: 'summary_text', text: thinking }],
 					status: 'completed',
 				});
@@ -403,31 +1173,44 @@ function convertResponsesMessages(
 			for (const toolCall of toolCalls) {
 				input.push({
 					type: 'function_call',
+					id: generateResponsesItemId('fc'),
 					call_id: toolCall.id,
 					name: toolCall.function.name,
 					arguments: toolCall.function.arguments,
 					status: 'completed',
 				});
 			}
-			for (const toolResult of toolResults) {
-				input.push({
-					type: 'function_call_output',
-					call_id: toolResult.callId,
-					output: toolResult.content,
-					status: 'completed',
-				});
-			}
 			continue;
 		}
 
-		if (text) {
-			instructionParts.push(text);
+		if (sanitizedText) {
+			instructionParts.push(sanitizedText);
 		}
+	}
+
+	const lastItem = input[input.length - 1];
+	if (lastItem?.type === 'message' && lastItem.role === 'user') {
+		lastItem.status = 'incomplete';
+	}
+
+	const functionCallIds = new Set(
+		input.filter((item) => item.type === 'function_call').map((item) => item.call_id),
+	);
+	const functionOutputIds = new Set(
+		input.filter((item) => item.type === 'function_call_output').map((item) => item.call_id),
+	);
+	const missingOutputs = Array.from(functionCallIds).filter((callId) => !functionOutputIds.has(callId));
+	if (missingOutputs.length > 0) {
+		logger.warn(
+			`[Responses] request history has function_call without function_call_output count=${missingOutputs.length}`
+			+ ` callIds=${missingOutputs.slice(0, 5).join(',')}`,
+		);
 	}
 
 	return {
 		input,
 		instructions: instructionParts.length > 0 ? instructionParts.join('\n\n') : undefined,
+		compressionStats,
 	};
 }
 
@@ -503,11 +1286,18 @@ class ResponsesClient {
 				+ ` previousResponseId=${request.previous_response_id ? 'yes' : 'no'}`
 				+ ` reasoning=${request.reasoning ? JSON.stringify(request.reasoning) : 'none'}`,
 			);
+			logger.debug(`[Responses] request.summary mode=stream ${previewJson(summarizeResponsesRequest(request))}`);
+			logger.debug(`[Responses] request.body mode=stream ${previewJson(sanitizeResponsesRequestForLog(request))}`);
 
 			const response = await this.fetchWithRetry(request, controller.signal, 'stream');
 
 			if (!response.ok) {
 				const errorText = await response.text();
+				logger.warn(
+					`[Responses] stream.http_error status=${response.status}`
+					+ ` statusText=${response.statusText}`
+					+ ` body=${errorText.slice(0, LOG_RESPONSE_BODY_MAX)}`,
+				);
 				if (request.stream && shouldFallbackToNonStream(response.status, errorText)) {
 					logger.warn(
 						`[Responses] Streaming failed with ${response.status}; falling back to non-stream. ${errorText.slice(0, 200)}`,
@@ -608,13 +1398,15 @@ class ResponsesClient {
 						return;
 					}
 
+					let event: Record<string, unknown>;
 					try {
-						const event = JSON.parse(data) as Record<string, unknown>;
-						emittedResponsePart = true;
-						this.handleEvent(event, callbacks, state);
+						event = JSON.parse(data) as Record<string, unknown>;
 					} catch (error) {
 						logger.error('[Responses] Failed to parse SSE chunk:', data.slice(0, 200), error);
+						continue;
 					}
+					emittedResponsePart = true;
+					this.handleEvent(event, callbacks, state);
 				}
 			}
 
@@ -658,11 +1450,18 @@ class ResponsesClient {
 			+ ` model=${request.model} inputItems=${request.input.length}`
 				+ ` previousResponseId=${request.previous_response_id ? 'yes' : 'no'}`,
 		);
+		logger.debug(`[Responses] request.summary mode=json ${previewJson(summarizeResponsesRequest(request))}`);
+		logger.debug(`[Responses] request.body mode=json ${previewJson(sanitizeResponsesRequestForLog(request))}`);
 
 		const response = await this.fetchWithRetry(request, signal, 'json');
 
 		if (!response.ok) {
 			const errorText = await response.text();
+			logger.warn(
+				`[Responses] json.http_error status=${response.status}`
+				+ ` statusText=${response.statusText}`
+				+ ` body=${errorText.slice(0, LOG_RESPONSE_BODY_MAX)}`,
+			);
 			throw new ResponsesHttpError(response.status, errorText);
 		}
 
@@ -679,7 +1478,11 @@ class ResponsesClient {
 		let lastError: unknown;
 		for (let attempt = 0; attempt < 2; attempt++) {
 			try {
-				return await fetch(url, {
+				logger.debug(
+					`[Responses] ${mode}.fetch attempt=${attempt + 1}`
+					+ ` bytes=${Buffer.byteLength(JSON.stringify(request), 'utf8')}`,
+				);
+				const response = await fetch(url, {
 					method: 'POST',
 					headers: {
 						'Content-Type': 'application/json',
@@ -688,6 +1491,11 @@ class ResponsesClient {
 					body: JSON.stringify(request),
 					signal,
 				});
+				logger.debug(
+					`[Responses] ${mode}.fetch.response attempt=${attempt + 1}`
+					+ ` status=${response.status} contentType=${response.headers.get('content-type') ?? ''}`,
+				);
+				return response;
 			} catch (error) {
 				lastError = error;
 				if (attempt === 0) {
@@ -847,15 +1655,20 @@ class ResponsesClient {
 				logger.debug(`[Responses] event type=${eventType}`);
 				return;
 			}
+			case 'response.content_part.added':
+			case 'response.content_part.done':
+			case 'response.reasoning_summary_part.added':
+			case 'response.reasoning_summary_part.done':
+			case 'response.reasoning_part.added':
+			case 'response.reasoning_part.done': {
+				return;
+			}
 			case 'response.output_text.delta':
 			case 'response.refusal.delta': {
 				const delta = coerceText(event.delta);
 				if (!delta) {
 					return;
 				}
-				logger.debug(
-					`[Responses] text.delta type=${eventType} len=${delta.length} preview=${previewText(delta)}`,
-				);
 				state.textEventCount += 1;
 				reportEndThinking(state, callbacks);
 				const key = buildEventKey(event, 'item');
@@ -892,9 +1705,6 @@ class ResponsesClient {
 				if (!delta || looksLikeReasoningConfigValue(delta)) {
 					return;
 				}
-				logger.debug(
-					`[Responses] reasoning.delta type=${eventType} len=${delta.length} preview=${previewText(delta)}`,
-				);
 				state.reasoningEventCount += 1;
 				state.emittedReasoningKeys.add(buildEventKey(event, 'reasoning'));
 				bufferThinkingContent(delta, state, callbacks);
@@ -911,9 +1721,6 @@ class ResponsesClient {
 				const key = buildEventKey(event, 'reasoning');
 				const text = extractReasoningText(event);
 				if (text && !looksLikeReasoningConfigValue(text) && !state.emittedReasoningKeys.has(key)) {
-					logger.debug(
-						`[Responses] reasoning.done type=${eventType} len=${text.length} preview=${previewText(text)}`,
-					);
 					state.reasoningEventCount += 1;
 					state.emittedReasoningKeys.add(key);
 					bufferThinkingContent(text, state, callbacks);
@@ -929,9 +1736,6 @@ class ResponsesClient {
 					state.emittedBeginToolCallsHint = true;
 				}
 				const outputIndex = typeof event.output_index === 'number' ? event.output_index : 0;
-				logger.debug(
-					`[Responses] tool.delta type=${eventType} outputIndex=${outputIndex} name=${typeof event.name === 'string' ? event.name : ''}`,
-				);
 				state.toolEventCount += 1;
 				const pending = state.pendingToolCalls.get(outputIndex) ?? {
 					id: getCallIdFromEvent(event, outputIndex),
@@ -952,6 +1756,11 @@ class ResponsesClient {
 				}
 				state.pendingToolCalls.set(outputIndex, pending);
 				if (eventType === 'response.function_call_arguments.done') {
+					logger.debug(
+						`[Responses] tool.arguments.done outputIndex=${outputIndex}`
+						+ ` name=${pending.function.name || '(pending)'}`
+						+ ` argsChars=${pending.function.arguments.length}`,
+					);
 					flushPendingToolCall(outputIndex, state, callbacks);
 				}
 				return;
@@ -1107,9 +1916,49 @@ function flushPendingToolCall(
 		state.pendingToolCalls.delete(outputIndex);
 		return;
 	}
+	if (!isCompleteToolCall(pending)) {
+		logger.warn(
+			`[Responses] drop incomplete tool call outputIndex=${outputIndex}`
+			+ ` id=${pending.id || '(empty)'} name=${pending.function.name || '(empty)'}`,
+		);
+		state.pendingToolCalls.delete(outputIndex);
+		return;
+	}
+	pending.function.arguments = normalizeToolArguments(pending.function.arguments);
 	callbacks.onToolCall(pending);
 	state.emittedToolCallKeys.add(pending.id);
 	state.pendingToolCalls.delete(outputIndex);
+}
+
+function normalizeToolArguments(raw: string): string {
+	const trimmed = raw.trim();
+	if (!trimmed) {
+		return '{}';
+	}
+	try {
+		const parsed = JSON.parse(trimmed) as unknown;
+		return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+			? trimmed
+			: '{}';
+	} catch {
+		return '{}';
+	}
+}
+
+function isCompleteToolCall(toolCall: DeepSeekToolCall): boolean {
+	if (!toolCall.id?.trim() || !toolCall.function.name?.trim()) {
+		return false;
+	}
+	const trimmed = toolCall.function.arguments.trim();
+	if (!trimmed) {
+		return true;
+	}
+	try {
+		const parsed = JSON.parse(trimmed) as unknown;
+		return !!parsed && typeof parsed === 'object' && !Array.isArray(parsed);
+	} catch {
+		return false;
+	}
 }
 
 function flushPendingToolCalls(state: ResponsesStreamState, callbacks: StreamCallbacks): void {
@@ -1244,6 +2093,59 @@ function shouldFallbackToNonStream(status: number, errorText: string): boolean {
 			|| normalized.includes('not support')
 			|| normalized.includes('not implemented')
 		);
+}
+
+function resolveResponsesConversationState(
+	modelId: string,
+	baseUrl: string,
+	messages: readonly vscode.LanguageModelChatRequestMessage[],
+	marker: ResponsesStatefulMarkerLocation | null,
+	previousResponseIdsByConversation: Map<string, string>,
+): ResponsesConversationState {
+	const key = buildResponsesConversationKey(modelId, baseUrl, messages);
+	if (marker?.marker) {
+		previousResponseIdsByConversation.set(key, marker.marker);
+		return {
+			key,
+			previousResponseId: marker.marker,
+			markerIndex: marker.index,
+			source: 'marker',
+		};
+	}
+
+	const previousResponseId = previousResponseIdsByConversation.get(key);
+	return {
+		key,
+		previousResponseId,
+		source: previousResponseId ? 'memory' : 'none',
+	};
+}
+
+function buildResponsesConversationKey(
+	modelId: string,
+	baseUrl: string,
+	messages: readonly vscode.LanguageModelChatRequestMessage[],
+): string {
+	const firstText = messages.length > 0 ? firstTextFromMessage(messages[0]) : '';
+	return `${baseUrl}|${modelId}|${stableHash(firstText)}`;
+}
+
+function firstTextFromMessage(message: vscode.LanguageModelChatRequestMessage): string {
+	for (const part of message.content ?? []) {
+		if (part instanceof vscode.LanguageModelTextPart) {
+			return part.value;
+		}
+	}
+	return '';
+}
+
+function stableHash(text: string): string {
+	let hash = 2166136261;
+	for (let index = 0; index < text.length; index++) {
+		hash ^= text.charCodeAt(index);
+		hash = Math.imul(hash, 16777619);
+	}
+	return (hash >>> 0).toString(36);
 }
 
 function createResponsesStatefulMarkerPart(modelId: string, marker: string): vscode.LanguageModelDataPart {

@@ -17,6 +17,47 @@ function previewText(text: string, maxLength = 100): string {
 	return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}…` : normalized;
 }
 
+function parseToolArguments(raw: string): Record<string, unknown> | undefined {
+	const trimmed = raw.trim();
+	if (!trimmed) {
+		return {};
+	}
+	try {
+		const parsed = JSON.parse(trimmed) as unknown;
+		return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+			? parsed as Record<string, unknown>
+			: {};
+	} catch {
+		return undefined;
+	}
+}
+
+function isCompleteToolCall(toolCall: DeepSeekToolCall): boolean {
+	return !!toolCall.id?.trim()
+		&& !!toolCall.function.name?.trim()
+		&& parseToolArguments(toolCall.function.arguments) !== undefined;
+}
+
+function flushToolCalls(
+	pendingToolCalls: Map<number, DeepSeekToolCall>,
+	callbacks: StreamCallbacks,
+	providerLabel: string,
+	reason: string,
+): void {
+	for (const [index, toolCall] of pendingToolCalls) {
+		if (isCompleteToolCall(toolCall)) {
+			callbacks.onToolCall(toolCall);
+			continue;
+		}
+		logger.warn(
+			`[Client] drop incomplete tool call provider=${providerLabel}`
+			+ ` reason=${reason} index=${index} id=${toolCall.id || '(empty)'}`
+			+ ` name=${toolCall.function.name || '(empty)'}`,
+		);
+	}
+	pendingToolCalls.clear();
+}
+
 /**
  * Lightweight SSE-streaming DeepSeek API client.
  * No external dependencies — uses Node's built-in fetch.
@@ -117,7 +158,7 @@ export class DeepSeekClient {
 			const decoder = new TextDecoder();
 			let buffer = '';
 
-			// Accumulate tool call deltas by index, then emit on finish_reason=stop/tool_calls
+			// Accumulate tool call deltas by index, then emit complete calls on finish.
 			const pendingToolCalls = new Map<number, DeepSeekToolCall>();
 
 			while (true) {
@@ -145,11 +186,7 @@ export class DeepSeekClient {
 
 					if (trimmed === 'data: [DONE]') {
 						logger.debug(`[Client] chat.stream.done provider=${this.providerLabel}`);
-						// Flush any remaining tool calls
-						for (const tc of pendingToolCalls.values()) {
-							callbacks.onToolCall(tc);
-						}
-						pendingToolCalls.clear();
+						flushToolCalls(pendingToolCalls, callbacks, this.providerLabel, 'done');
 						callbacks.onDone();
 						return;
 					}
@@ -222,10 +259,12 @@ export class DeepSeekClient {
 							logger.debug(
 								`[Client] chat.finish provider=${this.providerLabel} reason=${choice.finish_reason}`,
 							);
-							for (const tc of pendingToolCalls.values()) {
-								callbacks.onToolCall(tc);
-							}
-							pendingToolCalls.clear();
+							flushToolCalls(
+								pendingToolCalls,
+								callbacks,
+								this.providerLabel,
+								choice.finish_reason,
+							);
 						}
 					} catch (e) {
 						logger.error('Failed to parse SSE chunk:', jsonStr.slice(0, 200), e);

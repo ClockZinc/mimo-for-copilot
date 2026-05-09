@@ -55,7 +55,7 @@ export interface ResponsesMessageContentPart {
 export interface ResponsesInputMessage {
 	type: 'message';
 	id?: string;
-	status?: 'in_progress' | 'completed';
+	status?: 'in_progress' | 'completed' | 'incomplete';
 	role: 'developer' | 'system' | 'user' | 'assistant';
 	phase?: 'commentary' | 'final_answer';
 	content: ResponsesMessageContentPart[];

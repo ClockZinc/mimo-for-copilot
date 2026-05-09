@@ -82,6 +82,8 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 	/** Vision proxy: resolver + cached model. */
 	private readonly vision = createVisionModelGetter();
 	private readonly responsesPreviousResponseIdUnsupportedBaseUrls = new Set<string>();
+	private readonly responsesPreviousResponseIdsByConversation = new Map<string, string>();
+	private readonly responsesReportedCompressionNotices = new Set<string>();
 	private activeResponseCount = 0;
 	private hasDeferredModelPickerRefresh = false;
 
@@ -387,6 +389,8 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		// Heuristic: detect conversation start to clear stale cache.
 		if (messages.length <= 2) {
 			pruneReasoningCache(this.reasoningCache, true);
+			this.responsesPreviousResponseIdsByConversation.clear();
+			this.responsesReportedCompressionNotices.clear();
 		}
 
 		// Vision: native vision → keep images; enhanced → proxy; neither → strip
@@ -395,6 +399,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			: enhancedVision
 				? await resolveImageMessages(messages, token, () => this.vision.get())
 				: messages;
+		const isAutopilotLike = options.tools?.some((tool) => tool.name === 'task_complete') ?? false;
 
 		if (isResponses) {
 			this.beginResponse();
@@ -412,6 +417,8 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 					maxTokens,
 					thinkingEffort,
 					unsupportedPreviousResponseIdBaseUrls: this.responsesPreviousResponseIdUnsupportedBaseUrls,
+					previousResponseIdsByConversation: this.responsesPreviousResponseIdsByConversation,
+					reportedCompressionNotices: this.responsesReportedCompressionNotices,
 					updateCharsPerToken: (observedRatio: number) => {
 						this.charsPerToken = this.charsPerToken * 0.7 + observedRatio * 0.3;
 					},
@@ -425,6 +432,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			isThinkingModel,
 			this.reasoningCache,
 			nativeVision,
+			isAutopilotLike,
 		);
 		const canUseTools = modelDef?.capabilities.toolCalling ?? userModelDef?.toolCalling ?? true;
 		const tools = canUseTools ? convertTools(options.tools) : undefined;
@@ -536,7 +544,11 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 						);
 
 						// Update status bar with real token usage
-						updateStatusBarFromUsage(usage, modelInfo.maxInputTokens);
+						updateStatusBarFromUsage(usage, modelInfo.maxInputTokens, {
+							afterPromptTokens: usage.prompt_tokens,
+							ratio: 1,
+							notice: 'Compression notices can be turned off in the Provider Configuration UI.',
+						});
 					},
 				},
 				token,

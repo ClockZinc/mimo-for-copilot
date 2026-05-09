@@ -10,6 +10,14 @@ import type {
 } from '../types';
 import type { ReasoningEntry } from './cache';
 
+export const AUTOPILOT_COMPAT_PROMPT = [
+	'You are running inside VS Code Copilot Chat Autopilot mode.',
+	'Use available tools when needed.',
+	'When the user request is fully complete, call the task_complete tool if it is available.',
+	'Do not end with only a textual final answer when task_complete is available.',
+	'If continuing after tool results or an automatic continuation, do not repeat prior text; continue from the latest state.',
+].join('\n');
+
 /**
  * Convert VS Code chat messages to DeepSeek format.
  * Injects cached reasoning_content for assistant messages that had tool calls
@@ -20,8 +28,16 @@ export function convertMessages(
 	isThinkingModel: boolean,
 	reasoningCache: Map<string, ReasoningEntry>,
 	nativeVision: boolean,
+	isAutopilotLike = false,
 ): DeepSeekMessage[] {
 	const result: DeepSeekMessage[] = [];
+
+	if (isAutopilotLike) {
+		result.push({
+			role: 'system',
+			content: AUTOPILOT_COMPAT_PROMPT,
+		});
+	}
 
 	for (const message of messages) {
 		const role = mapRole(message.role);
@@ -111,7 +127,7 @@ export function convertMessages(
 				});
 			} else {
 				result.push({
-					role: role as 'user' | 'assistant',
+					role: role as 'system' | 'user' | 'assistant',
 					content: content,
 				});
 			}
@@ -130,7 +146,7 @@ export function convertMessages(
 	return result;
 }
 
-function mapRole(role: vscode.LanguageModelChatMessageRole): 'user' | 'assistant' {
+function mapRole(role: vscode.LanguageModelChatMessageRole): 'system' | 'user' | 'assistant' {
 	switch (role) {
 		case vscode.LanguageModelChatMessageRole.User:
 			return 'user';

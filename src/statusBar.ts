@@ -7,6 +7,14 @@ import * as vscode from 'vscode';
 
 let statusBarItem: vscode.StatusBarItem | undefined;
 
+export interface TokenCompressionDetails {
+	beforePromptTokensEstimate?: number;
+	afterPromptTokens?: number;
+	ratio?: number;
+	description?: string;
+	notice?: string;
+}
+
 /** Create and register the token usage status bar item. */
 export function initStatusBar(context: vscode.ExtensionContext): void {
 	statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -28,7 +36,7 @@ export function updateStatusBarFromUsage(usage: {
 	total_tokens: number;
 	prompt_cache_hit_tokens?: number;
 	prompt_cache_miss_tokens?: number;
-}, modelMaxInputTokens: number): void {
+}, modelMaxInputTokens: number, compression?: TokenCompressionDetails): void {
 	if (!statusBarItem) { return; }
 
 	const promptTokens = usage.prompt_tokens;
@@ -44,14 +52,17 @@ export function updateStatusBarFromUsage(usage: {
 	const usagePercent = Math.min((promptTokens / modelMaxInputTokens) * 100, 100);
 
 	statusBarItem.text = `$(symbol-parameter) ${progressBar}`;
+	const compressionLines = formatCompressionTooltipLines(promptTokens, compression);
 	statusBarItem.tooltip = [
 		`Token Usage — Click to open Provider Config`,
 		``,
 		`${progressBar}`,
-		`  Prompt:       ${formatTokenCount(promptTokens)} / ${formatTokenCount(modelMaxInputTokens)} (${usagePercent.toFixed(1)}%)`,
+		`  Prompt:       ${formatTokenCount(promptTokens)} / ${formatTokenCount(modelMaxInputTokens)} (${usagePercent.toFixed(1)}%) actual after compression`,
 		`  Completion:   ${formatTokenCount(completionTokens)}`,
 		`  Total:        ${formatTokenCount(totalTokens)}`,
 		`  Cache:        hit=${formatTokenCount(cacheHit)} miss=${formatTokenCount(cacheMiss)} rate=${hitRate}%`,
+		``,
+		...compressionLines,
 	].join('\n');
 
 	// Color coding by context usage
@@ -88,6 +99,41 @@ function formatTokenCount(value: number): string {
 		return (value / 1_000).toFixed(1) + 'K';
 	}
 	return value.toLocaleString();
+}
+
+function formatCompressionTooltipLines(
+	promptTokens: number,
+	compression?: TokenCompressionDetails,
+): string[] {
+	const fallbackRatio = compression?.ratio && Number.isFinite(compression.ratio) && compression.ratio > 0
+		? compression.ratio
+		: 1;
+	if (!compression || !compression.beforePromptTokensEstimate || compression.beforePromptTokensEstimate <= promptTokens) {
+		return [
+			'Compression:',
+			`  Prompt tokens shown above are the actual API value after MiMo preprocessing/compression.`,
+			`  Compression ratio:             ${fallbackRatio.toFixed(2)}x${fallbackRatio === 1 ? ' (no MiMo compression detected for this request)' : ''}`,
+			compression?.notice
+				? `  ${compression.notice}`
+				: `  Compression chat notices can be turned off in the Provider Configuration UI.`,
+		];
+	}
+
+	const before = Math.max(promptTokens, Math.round(compression.beforePromptTokensEstimate));
+	const after = Math.max(1, Math.round(compression.afterPromptTokens ?? promptTokens));
+	const ratio = compression.ratio && Number.isFinite(compression.ratio) && compression.ratio > 0
+		? compression.ratio
+		: before / after;
+	const savedPercent = Math.max(0, Math.min(99.9, (1 - after / before) * 100));
+	return [
+		`Compression${compression.description ? ` — ${compression.description}` : ''}:`,
+		`  Before compression (estimated): ${formatTokenCount(before)}`,
+		`  After compression (actual):    ${formatTokenCount(after)}`,
+		`  Compression ratio:             ${ratio.toFixed(2)}x (${savedPercent.toFixed(1)}% saved)`,
+		compression.notice
+			? `  ${compression.notice}`
+			: `  Compression chat notices can be turned off in the Provider Configuration UI.`,
+	];
 }
 
 /** Create a Unicode progress bar. */

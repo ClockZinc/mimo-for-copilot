@@ -2,6 +2,45 @@ import vscode from 'vscode';
 import { CONFIG_SECTION, DEFAULT_PROVIDERS } from './consts';
 import type { ProviderDefinition, UserModelConfig } from './types';
 
+export interface ToolOutputCompressionSettings {
+	enabled: boolean;
+	compressImages: boolean;
+	truncateLongToolOutputs: boolean;
+	summarizeStructuredOutputs: boolean;
+	useToolTypePolicies: boolean;
+	showCompressionNotice: boolean;
+	maxToolOutputChars: number;
+	smallToolImageBytes: number;
+	maxCompressedImageBytes: number;
+	imageOutputFormat: ToolImageOutputFormat;
+	primaryImageMaxEdge: number;
+	primaryImageQuality: number;
+	fallbackImageMaxEdge: number;
+	fallbackImageQuality: number;
+	keepOriginalImagesWhenDisabled: boolean;
+}
+
+export type ToolImageOutputFormat = 'auto' | 'jpeg' | 'webp' | 'png';
+
+function getNumberSetting(
+	config: vscode.WorkspaceConfiguration,
+	key: string,
+	defaultValue: number,
+	minimum: number,
+	maximum: number,
+): number {
+	const value = config.get<number>(key, defaultValue);
+	if (!Number.isFinite(value)) {
+		return defaultValue;
+	}
+	return Math.min(Math.max(Math.floor(value), minimum), maximum);
+}
+
+function getToolImageOutputFormatSetting(config: vscode.WorkspaceConfiguration): ToolImageOutputFormat {
+	const value = config.get<string>('responses.toolOutputCompression.imageOutputFormat', 'auto');
+	return value === 'jpeg' || value === 'webp' || value === 'png' ? value : 'auto';
+}
+
 const MODEL_PROVIDER_COMPATIBILITY: Record<string, string[]> = {
 	'mimo-v2.5-pro': ['mimo', 'mimo-tp'],
 	'mimo-v2.5': ['mimo', 'mimo-tp'],
@@ -42,6 +81,69 @@ export function getMaxTokens(): number | undefined {
 	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 	const value = config.get<number>('maxTokens', 0);
 	return value > 0 ? value : undefined;
+}
+
+export function getToolOutputCompressionSettings(): ToolOutputCompressionSettings {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	return {
+		enabled: config.get<boolean>('responses.toolOutputCompression.enabled', true),
+		compressImages: config.get<boolean>('responses.toolOutputCompression.compressImages', true),
+		truncateLongToolOutputs: config.get<boolean>('responses.toolOutputCompression.truncateLongToolOutputs', true),
+		summarizeStructuredOutputs: config.get<boolean>('responses.toolOutputCompression.summarizeStructuredOutputs', false),
+		useToolTypePolicies: config.get<boolean>('responses.toolOutputCompression.useToolTypePolicies', true),
+		showCompressionNotice: config.get<boolean>('responses.toolOutputCompression.showNotice', false),
+		maxToolOutputChars: getNumberSetting(
+			config,
+			'responses.toolOutputCompression.maxToolOutputChars',
+			8000,
+			1000,
+			100000,
+		),
+		smallToolImageBytes: getNumberSetting(
+			config,
+			'responses.toolOutputCompression.smallToolImageBytes',
+			256 * 1024,
+			16 * 1024,
+			10 * 1024 * 1024,
+		),
+		maxCompressedImageBytes: getNumberSetting(
+			config,
+			'responses.toolOutputCompression.maxCompressedImageBytes',
+			512 * 1024,
+			32 * 1024,
+			10 * 1024 * 1024,
+		),
+		imageOutputFormat: getToolImageOutputFormatSetting(config),
+		primaryImageMaxEdge: getNumberSetting(
+			config,
+			'responses.toolOutputCompression.primaryImageMaxEdge',
+			1024,
+			128,
+			4096,
+		),
+		primaryImageQuality: getNumberSetting(
+			config,
+			'responses.toolOutputCompression.primaryImageQuality',
+			80,
+			10,
+			100,
+		),
+		fallbackImageMaxEdge: getNumberSetting(
+			config,
+			'responses.toolOutputCompression.fallbackImageMaxEdge',
+			512,
+			128,
+			4096,
+		),
+		fallbackImageQuality: getNumberSetting(
+			config,
+			'responses.toolOutputCompression.fallbackImageQuality',
+			70,
+			10,
+			100,
+		),
+		keepOriginalImagesWhenDisabled: config.get<boolean>('responses.toolOutputCompression.keepOriginalImagesWhenDisabled', false),
+	};
 }
 
 // ---- Multi-provider management ----
