@@ -7,6 +7,7 @@
 ### Documentation
 
 * refresh the extension icon and republish the packaged VSIX
+* remove retired Marketplace badges from README hero and fix the Configuration anchor link
 
 ## [1.1.1](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.1.0...v1.1.1) (2026-05-10)
 

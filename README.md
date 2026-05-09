@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="resources/mimo.png" alt="MiMo for Copilot Chat" width="108" height="108">
-</p>
-
 <h1 align="center">MiMo for Copilot Chat</h1>
 
 <p align="center">
@@ -9,17 +5,11 @@
 </p>
 
 <p align="center">
-  <a href="https://marketplace.visualstudio.com/items?itemName=clockzincbit.mimo-for-copilot"><img src="https://img.shields.io/visual-studio-marketplace/v/clockzincbit.mimo-for-copilot?style=for-the-badge&logo=visualstudiocode&label=Marketplace" alt="VS Code Marketplace Version"></a>
-  <a href="https://marketplace.visualstudio.com/items?itemName=clockzincbit.mimo-for-copilot"><img src="https://img.shields.io/visual-studio-marketplace/i/clockzincbit.mimo-for-copilot?style=for-the-badge&label=Installs" alt="VS Code Marketplace Installs"></a>
-  <a href="https://github.com/ClockZinc/mimo-for-copilot"><img src="https://img.shields.io/github/stars/ClockZinc/mimo-for-copilot?style=for-the-badge&logo=github" alt="GitHub Stars"></a>
-</p>
-
-<p align="center">
   <a href="https://marketplace.visualstudio.com/items?itemName=clockzincbit.mimo-for-copilot"><strong>Install from Marketplace</strong></a>
   ·
   <a href="#-quick-start"><strong>Quick Start</strong></a>
   ·
-  <a href="#configuration-page"><strong>Configuration</strong></a>
+  <a href="#%EF%B8%8F-configuration-page"><strong>Configuration</strong></a>
 </p>
 
 <p align="center">
