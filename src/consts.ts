@@ -174,6 +174,44 @@ export const MODELS: ModelDefinition[] = [
 		temperature: 0.3,
 		topP: 0.95,
 	},
+	{
+		id: 'gpt-5.4',
+		name: 'GPT-5.4',
+		family: 'openai-responses',
+		version: '5.4',
+		detail: 'OpenAI Responses reasoning model',
+		maxInputTokens: 1050000,
+		maxOutputTokens: 128000,
+		capabilities: {
+			toolCalling: true,
+			nativeVision: true,
+			thinking: true,
+		},
+		enhancedVision: false,
+		requiresThinkingParam: true,
+		thinkingParamStyle: 'responses',
+		providerId: 'openai-responses',
+		temperature: 1,
+	},
+	{
+		id: 'gpt-5.5',
+		name: 'GPT-5.5',
+		family: 'openai-responses',
+		version: '5.5',
+		detail: 'OpenAI Responses lighter reasoning preset',
+		maxInputTokens: 1050000,
+		maxOutputTokens: 128000,
+		capabilities: {
+			toolCalling: true,
+			nativeVision: true,
+			thinking: true,
+		},
+		enhancedVision: false,
+		requiresThinkingParam: true,
+		thinkingParamStyle: 'responses',
+		providerId: 'openai-responses',
+		temperature: 1,
+	},
 ];
 
 /** Default provider definitions. Users can add more via the config view. */
@@ -181,4 +219,5 @@ export const DEFAULT_PROVIDERS: ProviderDefinition[] = [
 	{ id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com' },
 	{ id: 'mimo', name: 'MiMo (Xiaomi)', baseUrl: 'https://api.xiaomimimo.com/v1' },
 	{ id: 'mimo-tp', name: 'MiMo Token Plan', baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1' },
+	{ id: 'openai-responses', name: 'OpenAI Responses', baseUrl: '', apiMode: 'responses' },
 ];

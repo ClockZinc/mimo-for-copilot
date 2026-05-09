@@ -4,9 +4,8 @@ import { DeepSeekClient } from '../client';
 import {
 	getApiModelId,
 	getMaxTokens,
-	getRelatedProviders,
 	getCandidateProvidersForModel,
-	isProviderSupportedForModel,
+	getProviderById,
 	resolveProviderForModel,
 	getUserModels,
 	getHiddenModels,
@@ -17,6 +16,10 @@ import { logger } from '../logger';
 import type { DeepSeekToolCall, ModelDefinition } from '../types';
 import { type ReasoningEntry, pruneReasoningCache } from './cache';
 import { convertMessages, convertTools, countMessageChars } from './convert';
+import {
+	buildResponsesConfigurationSchema,
+	handleResponsesChatRequest,
+} from './responses';
 import { createVisionModelGetter, resolveImageMessages, setVisionProxyModel } from './vision';
 import { updateStatusBarFromUsage } from '../statusBar';
 
@@ -34,7 +37,7 @@ import { updateStatusBarFromUsage } from '../statusBar';
  * types and drop the casts below.
  */
 
-type ThinkingEffort = 'none' | 'high' | 'max' | 'on' | 'off';
+type ThinkingEffort = 'none' | 'low' | 'medium' | 'high' | 'max' | 'xhigh' | 'on' | 'off' | undefined;
 
 /**
  * Non-public: Copilot Chat passes the user's per-model picker selections
@@ -53,7 +56,7 @@ type ModelConfigurationOptions = vscode.ProvideLanguageModelChatResponseOptions 
  * `configurationSchema` declares the per-model dropdown schema.
  */
 /** Shape of the per-model configuration schema rendered by Copilot Chat's model picker. */
-type ThinkingEffortConfigurationSchema = ReturnType<typeof buildThinkingEffortSchema>;
+type ThinkingEffortConfigurationSchema = { readonly properties: Record<string, unknown> };
 
 type ModelPickerChatInformation = vscode.LanguageModelChatInformation & {
 	readonly isUserSelectable: boolean;
@@ -78,6 +81,9 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 
 	/** Vision proxy: resolver + cached model. */
 	private readonly vision = createVisionModelGetter();
+	private readonly responsesPreviousResponseIdUnsupportedBaseUrls = new Set<string>();
+	private activeResponseCount = 0;
+	private hasDeferredModelPickerRefresh = false;
 
 	/**
 	 * Adaptive chars-per-token ratio, calibrated from actual usage data.
@@ -97,7 +103,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 					e.affectsConfiguration('mimo-copilot.providers') ||
 					e.affectsConfiguration('mimo-copilot.models')
 				) {
-					this.onDidChangeLanguageModelChatInformationEmitter.fire();
+					this.refreshModelPicker();
 				}
 
 				if (e.affectsConfiguration('mimo-copilot.visionModel')) {
@@ -109,10 +115,37 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			// model picker so the warning state stays in sync.
 			context.secrets.onDidChange((e) => {
 				if (e.key === 'mimo-copilot.apiKey' || e.key.startsWith('mimo-copilot.apiKey.')) {
-					this.onDidChangeLanguageModelChatInformationEmitter.fire();
+					this.refreshModelPicker();
 				}
 			}),
 		);
+	}
+
+	private beginResponse(): void {
+		this.activeResponseCount += 1;
+	}
+
+	private endResponse(): void {
+		this.activeResponseCount = Math.max(0, this.activeResponseCount - 1);
+		if (this.activeResponseCount === 0 && this.hasDeferredModelPickerRefresh) {
+			this.hasDeferredModelPickerRefresh = false;
+			this.onDidChangeLanguageModelChatInformationEmitter.fire();
+		}
+	}
+
+	private safeProgress(
+		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
+		modelId: string,
+	): vscode.Progress<vscode.LanguageModelResponsePart> {
+		return {
+			report: (part) => {
+				try {
+					progress.report(part);
+				} catch (error) {
+					logger.warn(`[Request] progress.report ignored for stale response model=${modelId}`, error);
+				}
+			},
+		};
 	}
 
 	// ---- Public commands ----
@@ -120,7 +153,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 	async configureApiKey(): Promise<void> {
 		const saved = await this.authManager.promptForApiKey();
 		if (saved) {
-			this.onDidChangeLanguageModelChatInformationEmitter.fire();
+			this.refreshModelPicker();
 		}
 	}
 
@@ -148,7 +181,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		} else {
 			await this.authManager.deleteProviderKey(chosen.description!);
 		}
-		this.onDidChangeLanguageModelChatInformationEmitter.fire();
+		this.refreshModelPicker();
 		vscode.window.showInformationMessage(t('auth.removed'));
 	}
 
@@ -158,12 +191,15 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 
 	/** Check if a specific provider has an API key. */
 	async hasProviderApiKey(providerId: string): Promise<boolean> {
-		const key = await this.authManager.getApiKeyForProvider(providerId);
-		return key !== undefined && key.length > 0;
+		return this.authManager.hasProviderSpecificKey(providerId);
 	}
 
 	/** Force Copilot Chat to re-query model information (including configurationSchema). */
 	refreshModelPicker(): void {
+		if (this.activeResponseCount > 0) {
+			this.hasDeferredModelPickerRefresh = true;
+			return;
+		}
 		this.onDidChangeLanguageModelChatInformationEmitter.fire();
 	}
 
@@ -211,6 +247,9 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		// Only the actual global key (mimo-copilot.apiKey) counts as global fallback
 		const hasGlobalKey = !!(await this.authManager.getApiKey());
 		const hasDeepSeekKey = !!providerKeyStatus.get('deepseek') || hasGlobalKey;
+		const responsesProvider = getProviderById('openai-responses');
+		const hasResponsesKey = !!providerKeyStatus.get('openai-responses');
+		const hasResponsesConfigured = !!responsesProvider?.baseUrl?.trim() && hasResponsesKey;
 
 		function hasKeyForModel(modelId: string, providerId: string | undefined): boolean {
 			if (!providerId || providerId === 'default') {
@@ -235,6 +274,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		const builtinInfos = MODELS
 			.filter((model) => !hiddenModels.includes(model.id))
 			.filter((model) => model.family !== 'deepseek' || hasDeepSeekKey)
+			.filter((model) => model.family !== 'openai-responses' || hasResponsesConfigured)
 			.map((model) =>
 			toChatInfo(model, hasKeyForModel(model.id, model.providerId), getEffectiveProviderId(model.id, model.providerId)),
 		);
@@ -257,8 +297,10 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		const userInfos: ModelPickerChatInformation[] = userModels
 			.filter((m) => !hiddenModels.includes(m.id) && !MODELS.some((bm) => bm.id === m.id))
 			.filter((m) => m.providerId !== 'deepseek' || hasDeepSeekKey)
+			.filter((m) => m.providerId !== 'openai-responses' || hasResponsesConfigured)
 			.map((m) => {
 				const hasKey = hasKeyForModel(m.id, m.providerId);
+				const providerApiMode = m.providerId ? getProviderById(m.providerId)?.apiMode : undefined;
 				return {
 					id: m.id,
 					name: m.name,
@@ -275,7 +317,13 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 						toolCalling: m.toolCalling,
 						imageInput: m.nativeVision,
 					},
-					...(m.thinking && m.requiresThinkingParam ? { configurationSchema: buildThinkingEffortSchema() } : {}),
+					...(m.thinking && m.requiresThinkingParam
+						? {
+							configurationSchema: (providerApiMode === 'responses'
+								? buildResponsesConfigurationSchema(m.id)
+								: buildThinkingEffortSchema()) as ThinkingEffortConfigurationSchema,
+						}
+						: {}),
 				};
 			});
 
@@ -289,10 +337,14 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
 		token: vscode.CancellationToken,
 	): Promise<void> {
+		const safeProgress = this.safeProgress(progress, modelInfo.id);
 		const modelDef = MODELS.find((m) => m.id === modelInfo.id);
 		const userModelDef = !modelDef ? getUserModels().find((m) => m.id === modelInfo.id) : undefined;
+		const configuredProviderId = modelDef?.providerId ?? userModelDef?.providerId;
+		const providerMode = configuredProviderId ? getProviderById(configuredProviderId)?.apiMode : undefined;
 		const isThinkingModel = modelDef?.capabilities.thinking ?? userModelDef?.thinking ?? false;
 		const isMiMo = modelDef?.thinkingParamStyle === 'mimo';
+		const isResponses = modelDef?.thinkingParamStyle === 'responses' || providerMode === 'responses';
 		const needsThinkingParam = modelDef?.requiresThinkingParam ?? userModelDef?.requiresThinkingParam ?? true;
 		const thinkingEffort = getConfiguredThinkingEffort(options as ModelConfigurationOptions);
 		const maxTokens = getMaxTokens();
@@ -301,9 +353,11 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		// NOTE: 默认关闭 enhancedVision 以加快首字响应速度
 		const nativeVision = modelDef?.capabilities.nativeVision ?? userModelDef?.nativeVision ?? false;
 		const enhancedVision = modelDef?.enhancedVision ?? userModelDef?.enhancedVision ?? false;
+		const userTemp = userModelDef?.temperature ?? modelDef?.temperature;
+		const userTopP = userModelDef?.topP ?? modelDef?.topP;
 
 		// Resolve provider-specific settings (baseUrl + apiKey) with cascade
-		const modelProviderId = modelDef?.providerId ?? userModelDef?.providerId;
+		const modelProviderId = configuredProviderId;
 		// Build key status from providers config AND secretStorage for cascade siblings
 		const providerKeyStatus = new Map<string, boolean>();
 		const allProviders = vscode.workspace.getConfiguration('mimo-copilot').get<Array<{ id: string }>>('providers') ?? [];
@@ -326,8 +380,8 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		}
 
 		const client = new DeepSeekClient(baseUrl, apiKey, {
-			skipStreamOptions: isMiMo,
-			providerLabel: isMiMo ? 'MiMo' : 'DeepSeek',
+			skipStreamOptions: isMiMo || isResponses,
+			providerLabel: isResponses ? 'OpenAI Responses' : isMiMo ? 'MiMo' : 'DeepSeek',
 		});
 
 		// Heuristic: detect conversation start to clear stale cache.
@@ -341,6 +395,31 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			: enhancedVision
 				? await resolveImageMessages(messages, token, () => this.vision.get())
 				: messages;
+
+		if (isResponses) {
+			this.beginResponse();
+			try {
+				return await handleResponsesChatRequest({
+					baseUrl,
+					apiKey,
+					modelInfo,
+					modelDef,
+					userModelDef,
+					messages: resolvedMessages,
+					options,
+					progress: safeProgress,
+					token,
+					maxTokens,
+					thinkingEffort,
+					unsupportedPreviousResponseIdBaseUrls: this.responsesPreviousResponseIdUnsupportedBaseUrls,
+					updateCharsPerToken: (observedRatio: number) => {
+						this.charsPerToken = this.charsPerToken * 0.7 + observedRatio * 0.3;
+					},
+				});
+			} finally {
+				this.endResponse();
+			}
+		}
 		const deepseekMessages = convertMessages(
 			resolvedMessages,
 			isThinkingModel,
@@ -350,16 +429,13 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		const canUseTools = modelDef?.capabilities.toolCalling ?? userModelDef?.toolCalling ?? true;
 		const tools = canUseTools ? convertTools(options.tools) : undefined;
 
-		// Temperature / topP: user override > model default
-		const userTemp = userModelDef?.temperature ?? modelDef?.temperature;
-		const userTopP = userModelDef?.topP ?? modelDef?.topP;
-
 		const totalRequestChars = countMessageChars(deepseekMessages);
 
 		let accumulatedReasoning = '';
 		const pendingToolCallIds: string[] = [];
 		let responseMessageId: string | undefined;
 
+		this.beginResponse();
 		return new Promise<void>((resolve, reject) => {
 			client.streamChatCompletion(
 				{
@@ -383,7 +459,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 				},
 				{
 					onContent: (content: string) => {
-						progress.report(new vscode.LanguageModelTextPart(content));
+						safeProgress.report(new vscode.LanguageModelTextPart(content));
 					},
 
 					onThinking: (text: string) => {
@@ -393,7 +469,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 						// exists at runtime in both stable and Insiders, but the
 						// stable vscode.d.ts doesn't include it. The .d.ts
 						// augmentation in the project root provides type safety.
-						progress.report(
+						safeProgress.report(
 							new vscode.LanguageModelThinkingPart(
 								text,
 							) as unknown as vscode.LanguageModelResponsePart,
@@ -413,11 +489,11 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 
 						try {
 							const args = JSON.parse(toolCall.function.arguments);
-							progress.report(
+							safeProgress.report(
 								new vscode.LanguageModelToolCallPart(toolCall.id, toolCall.function.name, args),
 							);
 						} catch {
-							progress.report(
+							safeProgress.report(
 								new vscode.LanguageModelToolCallPart(toolCall.id, toolCall.function.name, {}),
 							);
 						}
@@ -465,6 +541,8 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 				},
 				token,
 			);
+		}).finally(() => {
+			this.endResponse();
 		});
 	}
 
@@ -538,6 +616,7 @@ function toChatInfo(m: ModelDefinition, hasApiKey: boolean, effectiveProviderId?
 	const detailKey = resolveDetailKey(m);
 	const modelDetail = detailKey ? t(detailKey) : m.detail;
 	const isMiMo = m.thinkingParamStyle === 'mimo';
+	const isResponses = m.thinkingParamStyle === 'responses';
 	const showProvider = effectiveProviderId || m.providerId || 'default';
 	return {
 		id: m.id,
@@ -555,7 +634,7 @@ function toChatInfo(m: ModelDefinition, hasApiKey: boolean, effectiveProviderId?
 			imageInput: m.capabilities.nativeVision,
 		},
 		...(m.capabilities.thinking && m.requiresThinkingParam
-			? { configurationSchema: (isMiMo ? buildMiMoReasoningSchema() : buildThinkingEffortSchema()) as ThinkingEffortConfigurationSchema }
+			? { configurationSchema: (isResponses ? buildResponsesConfigurationSchema(m.id) : isMiMo ? buildMiMoReasoningSchema() : buildThinkingEffortSchema()) as ThinkingEffortConfigurationSchema }
 			: {}),
 	};
 }
@@ -580,13 +659,20 @@ function buildMiMoReasoningSchema() {
 function getConfiguredThinkingEffort(options: ModelConfigurationOptions): ThinkingEffort {
 	const configuredEffort =
 		options.modelConfiguration?.reasoningEffort ?? options.configuration?.reasoningEffort;
+	if (configuredEffort === undefined || configuredEffort === null) {
+		return undefined;
+	}
 
 	// MiMo on/off
 	if (configuredEffort === 'on') { return 'on'; }
 	if (configuredEffort === 'off') { return 'none'; }
 
 	if (configuredEffort === 'none') { return 'none'; }
+	if (configuredEffort === 'low') { return 'low'; }
+	if (configuredEffort === 'medium') { return 'medium'; }
 	if (configuredEffort === 'high') { return 'high'; }
+	if (configuredEffort === 'xhigh') { return 'xhigh'; }
 
-	return configuredEffort === 'max' ? 'max' : 'high';
+	return configuredEffort === 'max' ? 'max' : undefined;
 }
+

@@ -330,6 +330,10 @@ export class ConfigViewPanel {
 			vscode.window.showErrorMessage(t('configView.providers.idRequired'));
 			return;
 		}
+		if (provider.apiMode === 'responses' && !provider.baseUrl?.trim()) {
+			vscode.window.showErrorMessage(t('configView.providers.baseUrlRequired'));
+			return;
+		}
 		const config = vscode.workspace.getConfiguration();
 		const providers = getProviders();
 		const idx = providers.findIndex((p) => p.id === provider.id);
@@ -503,9 +507,11 @@ export class ConfigViewPanel {
 <div class="form-grid">
 <div class="field"><label for="pf-id">${t('configView.providers.form.idLabel')}</label><input id="pf-id" type="text" placeholder="${t('configView.providers.form.idPlaceholder')}"/><div class="hint">${t('configView.providers.form.idHint')}</div></div>
 <div class="field"><label for="pf-name">${t('configView.providers.form.nameLabel')}</label><input id="pf-name" type="text" placeholder="DeepSeek"/></div>
+<div class="field"><label for="pf-apiMode">${t('configView.providers.form.apiModeLabel')}</label><select id="pf-apiMode"><option value="chat-completions">${t('configView.providers.form.apiModeChatCompletions')}</option><option value="responses">${t('configView.providers.form.apiModeResponses')}</option></select><div class="hint">${t('configView.providers.form.apiModeHint')}</div></div>
 <div class="field"><label for="pf-baseUrl">${t('configView.providers.form.baseUrlLabel')}</label><input id="pf-baseUrl" type="text" placeholder="https://api.deepseek.com"/><div class="hint">${t('configView.providers.form.baseUrlHint')}</div></div>
 <div class="field"><label for="pf-apiKey">${t('configView.providers.form.apiKeyLabel')}</label><div class="input-with-toggle"><input id="pf-apiKey" type="password" placeholder="${t('configView.providers.form.apiKeyPlaceholder')}"/><button id="pf-apiKey-toggle" class="btn secondary small toggle-eye" title="${t('configView.providers.form.apiKeyToggle')}">*</button></div><div class="hint">${t('configView.providers.form.apiKeyHint')}</div></div>
 </div>
+<div class="hint">${t('configView.providers.form.responsesHint')}</div>
 <div class="form-actions"><button id="pf-save" class="btn primary">${t('configView.providers.form.save')}</button><button id="pf-cancel" class="btn secondary">${t('configView.providers.form.cancel')}</button><button id="pf-fetchModels" class="btn secondary">${t('configView.providers.form.fetchModels')}</button></div>
 <div id="fetchedModels" style="display:none"><h3>${t('configView.providers.availableModels')}</h3><div id="fetchedModelsList"></div></div>
 </section>
@@ -523,6 +529,7 @@ export class ConfigViewPanel {
 <div class="field"><label for="mf-nativeVision">${t('configView.models.form.nativeVisionLabel')}</label><select id="mf-nativeVision"><option value="false">${t('configView.common.no')}</option><option value="true">${t('configView.common.yes')}</option></select><div class="hint">${t('configView.models.form.nativeVisionHint')}</div></div>
 <div class="field"><label for="mf-enhancedVision">${t('configView.models.form.enhancedVisionLabel')}</label><select id="mf-enhancedVision"><option value="false">${t('configView.common.no')}</option><option value="true">${t('configView.common.yes')}</option></select><div class="hint">${t('configView.models.form.enhancedVisionHint')}</div></div>
 <div class="field"><label for="mf-thinking">${t('configView.models.form.thinkingLabel')}</label><select id="mf-thinking"><option value="true">${t('configView.common.yes')}</option><option value="false">${t('configView.common.no')}</option></select></div>
+<div class="field"><label for="mf-requiresThinkingParam">${t('configView.models.form.requiresThinkingParamLabel')}</label><select id="mf-requiresThinkingParam"><option value="true">${t('configView.common.yes')}</option><option value="false">${t('configView.common.no')}</option></select><div class="hint">${t('configView.models.form.requiresThinkingParamHint')}</div></div>
 </div>
 <div class="form-actions"><button id="mf-save" class="btn primary">${t('configView.models.form.save')}</button><button id="mf-cancel" class="btn secondary">${t('configView.models.form.cancel')}</button></div>
 </section>

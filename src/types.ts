@@ -36,6 +36,90 @@ export interface DeepSeekTool {
 	};
 }
 
+export interface ResponsesTool {
+	type: 'function';
+	name: string;
+	description?: string;
+	parameters?: Record<string, unknown>;
+	strict?: boolean;
+}
+
+export type ResponsesToolChoice = 'none' | 'auto' | { type: 'function'; name: string };
+
+export interface ResponsesMessageContentPart {
+	type: 'input_text' | 'input_image' | 'output_text' | 'summary_text';
+	text?: string;
+	image_url?: string;
+}
+
+export interface ResponsesInputMessage {
+	type: 'message';
+	id?: string;
+	status?: 'in_progress' | 'completed';
+	role: 'developer' | 'system' | 'user' | 'assistant';
+	phase?: 'commentary' | 'final_answer';
+	content: ResponsesMessageContentPart[];
+}
+
+export interface ResponsesReasoningItem {
+	type: 'reasoning';
+	id?: string;
+	status?: 'in_progress' | 'completed';
+	summary: Array<{
+		type: 'summary_text';
+		text: string;
+	}>;
+	encrypted_content?: string;
+}
+
+export interface ResponsesFunctionCallItem {
+	type: 'function_call';
+	id?: string;
+	status?: 'in_progress' | 'completed';
+	call_id: string;
+	name: string;
+	arguments: string;
+}
+
+export interface ResponsesFunctionCallOutputItem {
+	type: 'function_call_output';
+	id?: string;
+	status?: 'in_progress' | 'completed';
+	call_id: string;
+	output: string;
+}
+
+export type ResponsesInputItem =
+	| ResponsesInputMessage
+	| ResponsesReasoningItem
+	| ResponsesFunctionCallItem
+	| ResponsesFunctionCallOutputItem;
+
+export interface ResponsesRequest {
+	model: string;
+	input: ResponsesInputItem[];
+	stream: boolean;
+	instructions?: string;
+	temperature?: number;
+	top_p?: number;
+	max_output_tokens?: number;
+	parallel_tool_calls?: boolean;
+	previous_response_id?: string;
+	prompt_cache_key?: string;
+	include?: string[];
+	text?: {
+		format?: { type: 'text' };
+		verbosity?: 'low' | 'medium' | 'high';
+	};
+	reasoning?: {
+		effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+		summary?: 'auto' | 'concise' | 'detailed';
+	};
+	tools?: ResponsesTool[];
+	tool_choice?: ResponsesToolChoice;
+	truncation?: 'auto' | 'disabled';
+}
+
 export interface DeepSeekRequest {
 	model: string;
 	messages: DeepSeekMessage[];
@@ -52,6 +136,8 @@ export interface DeepSeekRequest {
 		include_usage: boolean;
 	};
 }
+
+export type ProviderApiMode = 'chat-completions' | 'responses';
 
 export interface DeepSeekStreamChunk {
 	id: string;
@@ -93,6 +179,7 @@ export interface StreamCallbacks {
 	onToolCall: (toolCall: DeepSeekToolCall) => void;
 	onError: (error: Error) => void;
 	onDone: () => void;
+	onResponseId?: (responseId: string) => void;
 	onUsage?: (usage: {
 		prompt_tokens: number;
 		completion_tokens: number;
@@ -125,9 +212,10 @@ export interface ModelDefinition {
 	 * Thinking parameter style:
 	 * - 'deepseek' → sends `thinking` + `reasoning_effort`
 	 * - 'mimo' → sends `reasoning` (boolean only)
+	 * - 'responses' → sends `reasoning.effort` via OpenAI Responses API
 	 * Defaults to 'deepseek' if omitted.
 	 */
-	thinkingParamStyle?: 'deepseek' | 'mimo';
+	thinkingParamStyle?: 'deepseek' | 'mimo' | 'responses';
 	/** Link this model to a specific provider. Defaults to 'default' if omitted. */
 	providerId?: string;
 	/** Default temperature (0-2). */
@@ -146,6 +234,8 @@ export interface ProviderDefinition {
 	name: string;
 	/** API base URL (e.g. 'https://api.deepseek.com'). */
 	baseUrl: string;
+	/** Provider protocol / endpoint style. */
+	apiMode?: ProviderApiMode;
 }
 
 /** A user-configured model entry (extends the built-in ModelDefinition with user overrides). */

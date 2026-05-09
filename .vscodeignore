@@ -16,6 +16,7 @@ dist/**
 package-lock.json
 .DS_Store
 .env*
+tools/**
 !.env.example
 vscode.proposed.languageModelThinkingPart.d.ts
 

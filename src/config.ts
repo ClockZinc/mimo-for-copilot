@@ -7,6 +7,8 @@ const MODEL_PROVIDER_COMPATIBILITY: Record<string, string[]> = {
 	'mimo-v2.5': ['mimo', 'mimo-tp'],
 	'mimo-v2-pro': ['mimo', 'mimo-tp'],
 	'mimo-v2-flash': ['mimo'],
+	'gpt-5.4': ['openai-responses'],
+	'gpt-5.5': ['openai-responses'],
 };
 
 /**
@@ -57,15 +59,7 @@ export function getProviders(): ProviderDefinition[] {
 		merged.set(dp.id, dp);
 	}
 	for (const up of userProviders) {
-		// Migrate old known MiMo Token Plan URL from SGP to CN
-		if (
-			up.id === 'mimo-tp' &&
-			up.baseUrl === 'https://token-plan-sgp.xiaomimimo.com/v1'
-		) {
-			merged.set(up.id, { ...up, baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1' });
-		} else {
-			merged.set(up.id, up);
-		}
+		merged.set(up.id, up);
 	}
 	return [...merged.values()];
 }

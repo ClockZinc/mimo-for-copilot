@@ -1,5 +1,13 @@
 import vscode from 'vscode';
-import type { DeepSeekMessage, DeepSeekContentPart, DeepSeekTool, DeepSeekToolCall } from '../types';
+import type {
+	DeepSeekMessage,
+	DeepSeekContentPart,
+	DeepSeekTool,
+	DeepSeekToolCall,
+	ResponsesInputItem,
+	ResponsesMessageContentPart,
+	ResponsesTool,
+} from '../types';
 import type { ReasoningEntry } from './cache';
 
 /**
@@ -151,6 +159,133 @@ export function convertTools(
 			parameters: tool.inputSchema as Record<string, unknown> | undefined,
 		},
 	}));
+}
+
+export function convertResponsesMessages(
+	messages: readonly vscode.LanguageModelChatRequestMessage[],
+): { input: ResponsesInputItem[]; instructions?: string } {
+	const input: ResponsesInputItem[] = [];
+	const instructionParts: string[] = [];
+
+	for (const message of messages) {
+		const textParts: string[] = [];
+		const imageParts: vscode.LanguageModelDataPart[] = [];
+		const toolCalls: DeepSeekToolCall[] = [];
+		const toolResults: Array<{ callId: string; content: string }> = [];
+		const thinkingParts: string[] = [];
+
+		for (const part of message.content) {
+			if (part instanceof vscode.LanguageModelTextPart) {
+				textParts.push(part.value);
+			} else if (part instanceof vscode.LanguageModelDataPart && part.mimeType.startsWith('image/')) {
+				imageParts.push(part);
+			} else if (part instanceof vscode.LanguageModelToolCallPart) {
+				toolCalls.push({
+					id: part.callId,
+					type: 'function',
+					function: {
+						name: part.name,
+						arguments: JSON.stringify(part.input ?? {}),
+					},
+				});
+			} else if (part instanceof vscode.LanguageModelToolResultPart) {
+				let toolContent = '';
+				for (const item of part.content) {
+					if (item instanceof vscode.LanguageModelTextPart) {
+						toolContent += item.value;
+					}
+				}
+				toolResults.push({
+					callId: part.callId,
+					content: toolContent || JSON.stringify(part.content),
+				});
+			} else if (part instanceof vscode.LanguageModelThinkingPart) {
+				const value = Array.isArray(part.value) ? part.value.join('') : part.value;
+				thinkingParts.push(value);
+			}
+		}
+
+		const text = textParts.join('').trim();
+		const thinking = thinkingParts.join('').trim();
+
+		if (message.role === vscode.LanguageModelChatMessageRole.User) {
+			const content: ResponsesMessageContentPart[] = [];
+			if (text) {
+				content.push({ type: 'input_text', text });
+			}
+			for (const imagePart of imageParts) {
+				const dataUrl = `data:${imagePart.mimeType};base64,${Buffer.from(imagePart.data).toString('base64')}`;
+				content.push({ type: 'input_image', image_url: dataUrl });
+			}
+			if (content.length > 0) {
+				input.push({
+					type: 'message',
+					role: 'user',
+					content,
+					status: 'completed',
+				});
+			}
+		} else if (message.role === vscode.LanguageModelChatMessageRole.Assistant) {
+			if (text) {
+				input.push({
+					type: 'message',
+					role: 'assistant',
+					phase: toolCalls.length > 0 ? 'commentary' : 'final_answer',
+					content: [{ type: 'input_text', text }],
+					status: 'completed',
+				});
+			}
+			if (thinking) {
+				input.push({
+					type: 'reasoning',
+					summary: [{ type: 'summary_text', text: thinking }],
+					status: 'completed',
+				});
+			}
+			for (const toolCall of toolCalls) {
+				input.push({
+					type: 'function_call',
+					call_id: toolCall.id,
+					name: toolCall.function.name,
+					arguments: toolCall.function.arguments,
+					status: 'completed',
+				});
+			}
+			for (const toolResult of toolResults) {
+				input.push({
+					type: 'function_call_output',
+					call_id: toolResult.callId,
+					output: toolResult.content,
+					status: 'completed',
+				});
+			}
+		} else if (text) {
+			instructionParts.push(text);
+		}
+	}
+
+	return {
+		input,
+		instructions: instructionParts.length > 0 ? instructionParts.join('\n\n') : undefined,
+	};
+}
+
+export function convertResponsesTools(
+	tools: readonly vscode.LanguageModelChatTool[] | undefined,
+): { tools?: ResponsesTool[]; toolChoice?: 'auto' | { type: 'function'; name: string } } {
+	if (!tools || tools.length === 0) {
+		return {};
+	}
+
+	return {
+		tools: tools.map((tool) => ({
+			type: 'function',
+			name: tool.name,
+			description: tool.description,
+			parameters: tool.inputSchema as Record<string, unknown> | undefined,
+		})),
+		toolChoice: 'auto',
+	};
 }
 
 /**

@@ -1,7 +1,7 @@
 {
   "mimo-copilot.displayName": "MiMo for Copilot Chat",
-  "mimo-copilot.description": "Use MiMo V2.5 Pro & DeepSeek V4 models in Copilot Chat. Vision, thinking mode, agent tools - BYOK.",
-  "mimo-copilot.providerDisplayName": "MiMo & DeepSeek",
+  "mimo-copilot.description": "Use MiMo, DeepSeek, and OpenAI Responses-compatible models in Copilot Chat. Vision, thinking mode, tools, memory mode, multi-provider BYOK.",
+  "mimo-copilot.providerDisplayName": "MiMo, DeepSeek & Responses",
   "mimo-copilot.command.setApiKey": "MiMo: Set API Key",
   "mimo-copilot.command.getApiKey": "MiMo: Get API Key",
   "mimo-copilot.command.clearApiKey": "MiMo: Clear API Key",
@@ -26,8 +26,8 @@
   "mimo-copilot.walkthrough.showModels.description": "If the models are hidden, open VS Code's Language Models manager and show them.\n[Open Language Models](command:workbench.action.chat.manage)",
   "mimo-copilot.config.title": "MiMo Copilot",
   "mimo-copilot.config.baseUrl.description": "API base URL. Defaults to official DeepSeek API endpoint.",
-  "mimo-copilot.config.providers.description": "API providers configuration. Each provider has its own base URL and API key (stored securely). Use the 'Open Provider Configuration' command for a visual editor.",
-  "mimo-copilot.config.models.description": "User-configured models. Each model is linked to a provider. Use the 'Open Provider Configuration' command for a visual editor.",
+  "mimo-copilot.config.providers.description": "API providers configuration. Each provider has its own base URL, API mode, and API key (stored securely). Supports MiMo, DeepSeek, and OpenAI Responses-compatible providers. Use the 'Open Provider Configuration' command for a visual editor.",
+  "mimo-copilot.config.models.description": "User-configured models. Each model is linked to a provider and can be tuned with context, output, tool, reasoning, and sampling options. Use the 'Open Provider Configuration' command for a visual editor.",
   "mimo-copilot.config.hiddenModels.description": "IDs of built-in models hidden from the model picker. Manage via the Provider Configuration page.",
   "mimo-copilot.config.maxTokens.description": "Maximum number of output tokens per request. Set to 0 to use the API default (no limit). Useful for controlling costs.",
   "mimo-copilot.config.modelIdOverrides.description": "Override the API model ID sent for each model. Defaults are prefilled with official IDs.",
@@ -35,6 +35,8 @@
   "mimo-copilot.config.modelIdOverrides.deepseek-v4-pro.description": "API model ID for DeepSeek V4 Pro",
   "mimo-copilot.config.modelIdOverrides.mimo-v2.5-pro.description": "API model ID for MiMo V2.5 Pro",
   "mimo-copilot.config.modelIdOverrides.mimo-v2.5.description": "API model ID for MiMo V2.5",
+  "mimo-copilot.config.modelIdOverrides.gpt-5.4.description": "API model ID for GPT-5.4 Responses model",
+  "mimo-copilot.config.modelIdOverrides.gpt-5.5.description": "API model ID for GPT-5.5 Responses model",
   "mimo-copilot.config.visionModel.description": "Model ID for vision proxy. Leave empty for auto-detection.",
   "mimo-copilot.config.visionPrompt.description": "Prompt sent to the vision proxy model when describing image attachments."
 }

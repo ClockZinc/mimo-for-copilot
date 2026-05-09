@@ -95,14 +95,19 @@ export class AuthManager {
 		return false;
 	}
 
+	async hasProviderSpecificKey(providerId: string): Promise<boolean> {
+		const key = await this.secretStorage.get(`${CONFIG_SECTION}.apiKey.${providerId}`);
+		return !!key?.trim();
+	}
+
 	/**
 	 * Prompt user to choose a provider, then enter its API key.
 	 * Returns true if a key was saved.
 	 */
 	async promptForApiKey(): Promise<boolean> {
 		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-		const providers: Array<{ id: string; name: string }> =
-			config.get<Array<{ id: string; name: string }>>('providers') ?? [];
+		const providers: Array<{ id: string; name: string; baseUrl?: string; apiMode?: string }> =
+			config.get<Array<{ id: string; name: string; baseUrl?: string; apiMode?: string }>>('providers') ?? [];
 
 		// Build provider choices
 		const items: vscode.QuickPickItem[] = providers.map((p) => ({
@@ -122,6 +127,41 @@ export class AuthManager {
 		}
 
 		const providerId = chosen.description === 'Global API Key' ? undefined : chosen.description;
+		const selectedProvider = providers.find((provider) => provider.id === providerId);
+
+		if (providerId === 'openai-responses') {
+			const currentName = selectedProvider?.name?.trim() || 'OpenAI Responses';
+			const providerName = await vscode.window.showInputBox({
+				prompt: t('auth.responses.namePrompt'),
+				value: currentName,
+				ignoreFocusOut: true,
+				validateInput: (value: string) => value.trim() ? undefined : t('auth.responses.nameRequired'),
+			});
+			if (!providerName) {
+				return false;
+			}
+
+			const currentBaseUrl = selectedProvider?.baseUrl?.trim() || 'https://api.anyone.ai/v1';
+			const baseUrl = await vscode.window.showInputBox({
+				prompt: t('auth.responses.baseUrlPrompt'),
+				value: currentBaseUrl,
+				ignoreFocusOut: true,
+				validateInput: (value: string) => value.trim() ? undefined : t('auth.responses.baseUrlRequired'),
+			});
+			if (!baseUrl) {
+				return false;
+			}
+
+			const updatedProviders = [...providers];
+			const providerIndex = updatedProviders.findIndex((provider) => provider.id === providerId);
+			const nextProvider = { id: 'openai-responses', name: providerName.trim(), baseUrl: baseUrl.trim(), apiMode: 'responses' };
+			if (providerIndex >= 0) {
+				updatedProviders[providerIndex] = nextProvider;
+			} else {
+				updatedProviders.push(nextProvider);
+			}
+			await config.update('providers', updatedProviders, vscode.ConfigurationTarget.Global);
+		}
 
 		const apiKey = await vscode.window.showInputBox({
 			prompt: providerId ? t('auth.promptForProvider', chosen.label) : t('auth.prompt'),

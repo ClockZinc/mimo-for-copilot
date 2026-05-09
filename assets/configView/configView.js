@@ -190,6 +190,7 @@
 			document.getElementById('pf-id').value = p ? p.id : '';
 			document.getElementById('pf-id').disabled = true;
 			document.getElementById('pf-name').value = p ? p.name : '';
+			document.getElementById('pf-apiMode').value = p && p.apiMode === 'responses' ? 'responses' : 'chat-completions';
 			document.getElementById('pf-baseUrl').value = p ? p.baseUrl : '';
 			document.getElementById('pf-apiKey').value = providerKeys[providerId] || '';
 			document.getElementById('pf-apiKey').placeholder = providerKeys[providerId] ? strings.providersFormApiKeyRetainPlaceholder : strings.providersFormApiKeyPlaceholder;
@@ -198,6 +199,7 @@
 			document.getElementById('pf-id').value = '';
 			document.getElementById('pf-id').disabled = false;
 			document.getElementById('pf-name').value = '';
+			document.getElementById('pf-apiMode').value = 'chat-completions';
 			document.getElementById('pf-baseUrl').value = '';
 			document.getElementById('pf-apiKey').value = '';
 			document.getElementById('pf-apiKey').placeholder = strings.providersFormApiKeyPlaceholder;
@@ -207,6 +209,7 @@
 	document.getElementById('pf-save').addEventListener('click', function () {
 		var id = document.getElementById('pf-id').value.trim();
 		var name = document.getElementById('pf-name').value.trim();
+		var apiMode = document.getElementById('pf-apiMode').value;
 		var baseUrl = document.getElementById('pf-baseUrl').value.trim();
 		var apiKey = document.getElementById('pf-apiKey').value;
 		if (!id) { alert(strings.providersIdRequired); return; }
@@ -214,7 +217,7 @@
 		if (!baseUrl) { alert(strings.providersBaseUrlRequired); return; }
 		post({
 			type: editingProviderId ? 'updateProvider' : 'addProvider',
-			provider: { id: id, name: name, baseUrl: baseUrl },
+			provider: { id: id, name: name, baseUrl: baseUrl, apiMode: apiMode === 'responses' ? 'responses' : undefined },
 			apiKey: apiKey || undefined,
 		});
 		providerForm.style.display = 'none';
@@ -305,6 +308,7 @@
 			document.getElementById('mf-nativeVision').value = m ? String(!!m.nativeVision) : 'false';
 			document.getElementById('mf-enhancedVision').value = m ? String(!!m.enhancedVision) : 'true';
 			document.getElementById('mf-thinking').value = m ? String(!!m.thinking) : 'true';
+			document.getElementById('mf-requiresThinkingParam').value = m && m.requiresThinkingParam !== undefined ? String(!!m.requiresThinkingParam) : 'true';
 		} else {
 			document.getElementById('mfTitle').textContent = strings.modelsFormAddTitle;
 			document.getElementById('mf-id').value = '';
@@ -319,6 +323,7 @@
 			document.getElementById('mf-nativeVision').value = 'false';
 			document.getElementById('mf-enhancedVision').value = 'true';
 			document.getElementById('mf-thinking').value = 'true';
+			document.getElementById('mf-requiresThinkingParam').value = 'true';
 		}
 	}
 
@@ -345,6 +350,7 @@
 			nativeVision: document.getElementById('mf-nativeVision').value === 'true',
 			enhancedVision: document.getElementById('mf-enhancedVision').value === 'true',
 			thinking: document.getElementById('mf-thinking').value === 'true',
+			requiresThinkingParam: document.getElementById('mf-requiresThinkingParam').value === 'true',
 		};
 		if (!isNaN(temp) && temp >= 0) model.temperature = temp;
 		if (!isNaN(topP) && topP >= 0) model.topP = topP;
@@ -393,6 +399,7 @@
 				nativeVision: m.nativeVision,
 				enhancedVision: m.enhancedVision,
 				thinking: m.thinking,
+				requiresThinkingParam: m.requiresThinkingParam,
 				temperature: m.temperature,
 				topP: m.topP,
 			},
