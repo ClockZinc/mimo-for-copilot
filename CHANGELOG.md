@@ -8,6 +8,10 @@
 * always show a bold warning when oversized image tool outputs are removed before sending to the model
 * set GPT-5.5 default limits to 258K input and 128K output tokens while keeping model overrides editable
 
+### Bug Fixes
+
+* avoid loading sharp during extension activation so commands still register on Linux when optional native packages are missing
+
 ### Documentation
 
 * rename README screenshots with descriptive filenames

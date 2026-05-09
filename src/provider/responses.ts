@@ -1,6 +1,6 @@
 import vscode from 'vscode';
 import type { CancellationToken } from 'vscode';
-import sharp from 'sharp';
+import type sharp from 'sharp';
 import { getApiModelId, getToolOutputCompressionSettings } from '../config';
 import type { ToolImageOutputFormat, ToolOutputCompressionSettings } from '../config';
 import { t } from '../i18n';
@@ -108,6 +108,7 @@ type ToolOutputPolicy = {
 };
 
 type EncodedToolImageFormat = Exclude<ToolImageOutputFormat, 'auto'>;
+type SharpModule = typeof sharp;
 
 type ToolImageEncodingAttempt = {
 	label: string;
@@ -139,6 +140,17 @@ const INCLUDE_RESPONSES_REASONING_IN_REQUEST = false;
 const LOG_RESPONSE_BODY_MAX = 1200;
 const DEFAULT_MAX_TOOL_OUTPUT_CHARS = 8000;
 const TRANSIENT_NOTICE_PREFIX = '\u2063MiMo 提示：';
+let sharpModulePromise: Promise<SharpModule | undefined> | undefined;
+
+async function getSharpModule(): Promise<SharpModule | undefined> {
+	sharpModulePromise ??= import('sharp')
+		.then((module) => module.default ?? module as unknown as SharpModule)
+		.catch((error) => {
+			logger.warn('[Responses] sharp is unavailable; image tool outputs will be omitted instead of compressed', error);
+			return undefined;
+		});
+	return sharpModulePromise;
+}
 
 function resolveToolOutputCompressionSettings(): EffectiveToolOutputCompressionSettings {
 	const settings = getToolOutputCompressionSettings();
@@ -496,6 +508,11 @@ async function compressToolImage(
 		};
 	}
 
+	const sharp = await getSharpModule();
+	if (!sharp) {
+		return undefined;
+	}
+
 	let metadata: sharp.Metadata | undefined;
 	try {
 		metadata = await sharp(originalBuffer, { failOn: 'none' }).metadata();
@@ -511,6 +528,7 @@ async function compressToolImage(
 		try {
 			const output = await encodeToolImageVariant(
 				originalBuffer,
+				sharp,
 				format,
 				{ label: 'convert-only', quality: settings.primaryImageQuality },
 				hasAlpha,
@@ -547,7 +565,7 @@ async function compressToolImage(
 	] satisfies ToolImageEncodingAttempt[]) {
 		for (const format of formatCandidates) {
 			try {
-				const output = await encodeToolImageVariant(originalBuffer, format, attempt, hasAlpha);
+				const output = await encodeToolImageVariant(originalBuffer, sharp, format, attempt, hasAlpha);
 				if (output.byteLength <= settings.maxCompressedImageBytes) {
 					return {
 						mimeType: getToolImageMimeType(format),
@@ -602,6 +620,7 @@ function getToolImageMimeType(format: EncodedToolImageFormat): string {
 
 async function encodeToolImageVariant(
 	originalBuffer: Buffer,
+	sharp: SharpModule,
 	format: EncodedToolImageFormat,
 	attempt: ToolImageEncodingAttempt,
 	hasAlpha: boolean,
