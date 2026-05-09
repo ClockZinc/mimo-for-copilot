@@ -199,7 +199,7 @@ export const MODELS: ModelDefinition[] = [
 		family: 'openai-responses',
 		version: '5.5',
 		detail: 'OpenAI Responses lighter reasoning preset',
-		maxInputTokens: 1050000,
+		maxInputTokens: 258000,
 		maxOutputTokens: 128000,
 		capabilities: {
 			toolCalling: true,

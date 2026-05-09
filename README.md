@@ -5,7 +5,7 @@
 <h1 align="center">MiMo for Copilot Chat</h1>
 
 <p align="center">
-  Bring <strong>MiMo</strong>, <strong>DeepSeek V4</strong>, and <strong>OpenAI Responses-compatible</strong> models into the native GitHub Copilot Chat experience.
+  Bring <strong>MiMo</strong>, <strong>DeepSeek V4</strong>, <strong>Chat Completions</strong>, and <strong>OpenAI Responses-compatible</strong> models into the native GitHub Copilot Chat experience.
 </p>
 
 <p align="center">
@@ -29,7 +29,7 @@
 <table>
   <tr>
     <td><strong>Native Copilot Chat</strong><br>Use additional models directly from the Copilot Chat model picker.</td>
-    <td><strong>Multi-provider BYOK</strong><br>Configure MiMo, DeepSeek, and Responses-compatible endpoints with secure keys.</td>
+    <td><strong>Multi-provider BYOK</strong><br>Configure MiMo, DeepSeek, Chat Completions, and Responses-compatible endpoints with secure keys.</td>
     <td><strong>Token & compression visibility</strong><br>See actual API prompt tokens and MiMo compression ratios from the status bar.</td>
   </tr>
   <tr>
@@ -78,7 +78,7 @@ It keeps the built-in Copilot workflow intact while adding support for:
 
 - 🧠 Xiaomi MiMo models
 - 🔷 DeepSeek V4 models
-- 🌐 OpenAI Responses-compatible providers
+- 🌐 Chat Completions and OpenAI Responses-compatible providers
 - 🔑 provider-specific API keys and Base URLs
 - 👁️ model visibility controls
 - 🧩 memory-mode configuration
@@ -113,6 +113,19 @@ The configuration page includes:
 - Responses tool-output compression settings
 
 The configuration UI is adapted from the OAI-compatible Copilot-style settings experience and customized for MiMo providers, model routing, memory, and Responses compression controls.
+
+### Provider API mode
+
+When editing a provider, choose the API mode that matches the endpoint and then click **Save**:
+
+- **Chat Completions** for OpenAI-compatible `/chat/completions` providers, for example a base URL like `https://api.anyone.ai/v1`.
+- **Responses** for providers that expose the OpenAI `/responses` API.
+
+If a provider was created with the wrong mode, open **Provider Configuration**, click **Edit**, change **API Mode** to **Chat Completions** or **Responses**, and save it again.
+
+<p align="center">
+  <img src="resources/screenshots/chat-completions-provider-mode.png" alt="Provider configuration with Chat Completions API mode selected" width="920">
+</p>
 
 ### Agentic Memory
 
@@ -155,7 +168,7 @@ If a tool image remains too large and has to be removed, MiMo always emits a bol
 - DeepSeek V4 Pro
 - DeepSeek V4 Flash
 - GPT-5.4
-- GPT-5.5
+- GPT-5.5 — defaults to 258K input / 128K output tokens and can be overridden in model settings
 
 ## 📦 Install
 

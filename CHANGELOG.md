@@ -6,12 +6,14 @@
 
 * show actual post-compression prompt tokens and MiMo compression ratio in the token status tooltip
 * always show a bold warning when oversized image tool outputs are removed before sending to the model
+* set GPT-5.5 default limits to 258K input and 128K output tokens while keeping model overrides editable
 
 ### Documentation
 
 * rename README screenshots with descriptive filenames
 * credit the OAI-compatible Copilot-style configuration UI inspiration
 * refresh the README hero section and extension metadata for a Marketplace-style landing page
+* document Chat Completions provider API mode selection with a configuration screenshot
 
 ## [1.1.0](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.0.1...v1.1.0) (2026-05-10)
 
