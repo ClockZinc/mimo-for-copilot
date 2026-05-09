@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.1.1](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.1.0...v1.1.1) (2026-05-10)
+
 ### Features
 
 * show actual post-compression prompt tokens and MiMo compression ratio in the token status tooltip
