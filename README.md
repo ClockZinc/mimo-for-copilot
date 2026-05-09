@@ -108,6 +108,12 @@ npm run compile
 npx vsce package
 ```
 
+## 🙏 Fork & Credits
+
+This project is forked from and based on [Vizards/deepseek-v4-for-copilot](https://github.com/Vizards/deepseek-v4-for-copilot).
+
+Thanks to the original author and contributors for the DeepSeek Copilot Chat provider foundation. This fork keeps the upstream MIT license notice and extends the project with MiMo provider support, multi-provider configuration, memory features, and Responses-compatible model support.
+
 ## License
 
 MIT
