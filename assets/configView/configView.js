@@ -271,11 +271,11 @@
 			if (m.thinking) badges.push(strings.modelsBadgeThinking);
 			var actions = '';
 			if (m.hidden) {
-				actions = '<button class="btn primary small show-m" data-id="' + esc(m.id) + '">' + esc(strings.modelsShowButton) + '</button>';
+				actions = '<button class="btn primary small show-m" data-id="' + esc(m.key || m.id) + '">' + esc(strings.modelsShowButton) + '</button>';
 			} else {
 				actions =
-					'<button class="btn secondary small edit-m" data-id="' + esc(m.id) + '">' + esc(strings.modelsEditButton) + '</button>' +
-					'<button class="btn danger small del-m" data-id="' + esc(m.id) + '">' + esc(m.builtin ? strings.modelsHideButton : strings.modelsDeleteButton) + '</button>';
+					'<button class="btn secondary small edit-m" data-id="' + esc(m.key || m.id) + '">' + esc(strings.modelsEditButton) + '</button>' +
+					'<button class="btn danger small del-m" data-id="' + esc(m.key || m.id) + '">' + esc(m.builtin ? strings.modelsHideButton : strings.modelsDeleteButton) + '</button>';
 			}
 			var metaParts = [
 				format(strings.modelsMetaProvider, m.providerId),
@@ -423,7 +423,7 @@
 			sel.innerHTML += '<option value="' + esc(providers[i].id) + '">' + esc(providers[i].name) + '</option>';
 		}
 		if (modelId) {
-			var m = models.find(function (x) { return x.id === modelId; });
+			var m = models.find(function (x) { return (x.key || x.id) === modelId; });
 			document.getElementById('mfTitle').textContent = format(strings.modelsFormEditTitle, m ? m.name : modelId);
 			document.getElementById('mf-id').value = m ? m.id : '';
 			document.getElementById('mf-id').disabled = true;
@@ -470,6 +470,7 @@
 		if (isNaN(maxIn) || maxIn <= 0) { alert(strings.modelsMaxInputRequired); return; }
 		if (isNaN(maxOut) || maxOut <= 0) { alert(strings.modelsMaxOutputRequired); return; }
 		var model = {
+				key: editingModelId || ('user_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)),
 			id: id,
 			name: name,
 			providerId: providerId,
@@ -498,7 +499,7 @@
 	});
 
 	function deleteModel(id) {
-		var m = models.find(function (x) { return x.id === id; });
+		var m = models.find(function (x) { return (x.key || x.id) === id; });
 		var isBuiltin = m && m.builtin;
 		var msg = isBuiltin ? format(strings.modelsHideConfirm, id) : format(strings.modelsDeleteConfirm, id);
 		post({ type: 'requestConfirm', id: 'dm-' + id, message: msg });
@@ -514,11 +515,12 @@
 	function showModel(id) {
 		// Unhide a built-in model by deleting it from hiddenModels (backend handles this)
 		// We re-save the model with its current config to trigger unhide
-		var m = models.find(function (x) { return x.id === id; });
+		var m = models.find(function (x) { return (x.key || x.id) === id; });
 		if (!m) return;
 		post({
 			type: 'updateModel',
 			model: {
+				key: m.key || m.id,
 				id: m.id,
 				name: m.name,
 				providerId: m.providerId,
@@ -532,7 +534,7 @@
 				temperature: m.temperature,
 				topP: m.topP,
 			},
-			originalId: m.id,
+			originalId: m.key || m.id,
 		});
 	}
 

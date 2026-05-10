@@ -21,6 +21,12 @@ const zh: Translations = {
 	// Model descriptions
 	'model.flash.detail': '快速高效',
 	'model.pro.detail': '深度推理',
+	'model.gpt-5.4.detail': '标准推理',
+	'model.gpt-5.5.detail': '轻量推理',
+	'model.mimo-v2-pro.detail': '紧凑推理',
+	'model.mimo-v2-flash.detail': '快速推理',
+	'model.mimo-v2.5.detail': '原生视觉',
+	'model.mimo-v2.5-pro.detail': '高级推理',
 
 	// API Key
 	'auth.apiKeyRequiredDetail': '请先配置 API Key',
@@ -207,8 +213,8 @@ const zh: Translations = {
 	'configView.models.metaTopP': 'Top P：{0}',
 	'configView.models.form.addTitle': '添加模型',
 	'configView.models.form.editTitle': '编辑模型：{0}',
-	'configView.models.form.idLabel': '模型 ID *',
-	'configView.models.form.idHint': '发送给 API 的模型 ID',
+	'configView.models.form.idLabel': 'API 模型 ID *',
+	'configView.models.form.idHint': '发送给 API 的模型 ID；扩展会为每个条目自动维护内部唯一标识，因此可以重复使用同一个 API 模型 ID。',
 	'configView.models.form.nameLabel': '显示名称 *',
 	'configView.models.form.providerLabel': '服务商 *',
 	'configView.models.form.providerPlaceholder': '选择服务商',
@@ -246,6 +252,12 @@ const en: Translations = {
 	// Model descriptions
 	'model.flash.detail': 'Fast, general-purpose model',
 	'model.pro.detail': 'Most capable reasoning model',
+	'model.gpt-5.4.detail': 'Reasoning',
+	'model.gpt-5.5.detail': 'Lite',
+	'model.mimo-v2-pro.detail': 'Compact',
+	'model.mimo-v2-flash.detail': 'Fast',
+	'model.mimo-v2.5.detail': 'Vision',
+	'model.mimo-v2.5-pro.detail': 'Advanced',
 
 	// API Key
 	'auth.apiKeyRequiredDetail': 'Please run MiMo: Set API Key to configure.',
@@ -434,8 +446,8 @@ const en: Translations = {
 	'configView.models.metaTopP': 'Top P: {0}',
 	'configView.models.form.addTitle': 'Add Model',
 	'configView.models.form.editTitle': 'Edit Model: {0}',
-	'configView.models.form.idLabel': 'Model ID *',
-	'configView.models.form.idHint': 'ID sent to the API',
+	'configView.models.form.idLabel': 'API Model ID *',
+	'configView.models.form.idHint': 'Model ID sent to the API. The extension keeps a separate internal unique key, so multiple entries can share the same API model ID.',
 	'configView.models.form.nameLabel': 'Display Name *',
 	'configView.models.form.providerLabel': 'Provider *',
 	'configView.models.form.providerPlaceholder': 'Select Provider',

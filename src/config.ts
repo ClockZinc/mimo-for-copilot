@@ -2,6 +2,10 @@ import vscode from 'vscode';
 import { CONFIG_SECTION, DEFAULT_PROVIDERS } from './consts';
 import type { ProviderDefinition, UserModelConfig } from './types';
 
+export function getUserModelKey(model: Pick<UserModelConfig, 'id' | 'key'>): string {
+	return model.key?.trim() || model.id;
+}
+
 export interface ToolOutputCompressionSettings {
 	enabled: boolean;
 	compressImages: boolean;
@@ -169,7 +173,11 @@ export function getProviders(): ProviderDefinition[] {
 /** Get the list of user-configured models. */
 export function getUserModels(): UserModelConfig[] {
 	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-	return config.get<UserModelConfig[]>('models') ?? [];
+	const models = config.get<UserModelConfig[]>('models') ?? [];
+	return models.map((model) => ({
+		...model,
+		key: getUserModelKey(model),
+	}));
 }
 
 /** Get the list of hidden built-in model IDs. */

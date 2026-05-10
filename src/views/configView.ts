@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import type { ProviderDefinition, UserModelConfig } from '../types';
 import { CONFIG_SECTION, MODELS } from '../consts';
-import { getProviders, getRelatedProviders, getToolOutputCompressionSettings } from '../config';
+import { getProviders, getRelatedProviders, getToolOutputCompressionSettings, getUserModelKey } from '../config';
 import type { ToolOutputCompressionSettings } from '../config';
 import { updateMiMoModelProviders } from '../auth';
 import { t } from '../i18n';
@@ -199,8 +199,9 @@ export class ConfigViewPanel {
 		for (const m of MODELS) {
 			const isHidden = hiddenModels.includes(m.id);
 			// Merge user overrides for built-in models
-			const override = userModels.find((um) => um.id === m.id);
+			const override = userModels.find((um) => getUserModelKey(um) === m.id || um.id === m.id);
 			allModels.push({
+				key: override?.key ?? m.id,
 				id: m.id,
 				name: override?.name || m.name,
 				providerId: override?.providerId || getEffectiveProviderId(m.providerId),
@@ -219,7 +220,7 @@ export class ConfigViewPanel {
 		}
 
 		for (const m of userModels) {
-			if (!MODELS.some((bm) => bm.id === m.id)) {
+			if (!MODELS.some((bm) => bm.id === getUserModelKey(m))) {
 				allModels.push({ ...m, builtin: false, hidden: false });
 			}
 		}
@@ -434,13 +435,14 @@ export class ConfigViewPanel {
 	private async addModel(model: UserModelConfig) {
 		const config = vscode.workspace.getConfiguration();
 		const models = this.getUserModels();
-		if (models.some((m) => m.id === model.id)) {
-			vscode.window.showErrorMessage(t('configView.models.duplicate', model.id));
+		const key = getUserModelKey(model);
+		if (models.some((m) => getUserModelKey(m) === key)) {
+			vscode.window.showErrorMessage(t('configView.models.duplicate', key));
 			return;
 		}
-		models.push(model);
+		models.push({ ...model, key });
 		await config.update(`${CONFIG_SECTION}.models`, models, vscode.ConfigurationTarget.Global);
-		await this.unhideModel(model.id);
+		await this.unhideModel(key);
 		vscode.window.showInformationMessage(t('configView.models.added', model.name));
 		await this.sendInit();
 	}
@@ -448,11 +450,12 @@ export class ConfigViewPanel {
 	private async updateModel(model: UserModelConfig, originalId: string) {
 		const config = vscode.workspace.getConfiguration();
 		const models = this.getUserModels();
-		const idx = models.findIndex((m) => m.id === originalId);
+		const key = getUserModelKey(model);
+		const idx = models.findIndex((m) => getUserModelKey(m) === originalId);
 		if (idx >= 0) {
-			models[idx] = model;
+			models[idx] = { ...model, key };
 		} else {
-			models.push(model);
+			models.push({ ...model, key });
 		}
 		await config.update(`${CONFIG_SECTION}.models`, models, vscode.ConfigurationTarget.Global);
 		await this.unhideModel(originalId);
@@ -473,11 +476,11 @@ export class ConfigViewPanel {
 				hidden,
 				vscode.ConfigurationTarget.Global,
 			);
-			const models = this.getUserModels().filter((m) => m.id !== modelId);
+			const models = this.getUserModels().filter((m) => getUserModelKey(m) !== modelId);
 			await config.update(`${CONFIG_SECTION}.models`, models, vscode.ConfigurationTarget.Global);
 		} else {
 			const config = vscode.workspace.getConfiguration();
-			const models = this.getUserModels().filter((m) => m.id !== modelId);
+			const models = this.getUserModels().filter((m) => getUserModelKey(m) !== modelId);
 			await config.update(`${CONFIG_SECTION}.models`, models, vscode.ConfigurationTarget.Global);
 		}
 		vscode.window.showInformationMessage(t('configView.models.removed', modelId));

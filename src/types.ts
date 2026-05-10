@@ -240,6 +240,8 @@ export interface ProviderDefinition {
 
 /** A user-configured model entry (extends the built-in ModelDefinition with user overrides). */
 export interface UserModelConfig {
+	/** Internal unique model key used by the extension and VS Code model picker. */
+	key?: string;
 	/** Model ID sent to the API (e.g. 'deepseek-v4-pro'). */
 	id: string;
 	/** Display name in the model picker. */

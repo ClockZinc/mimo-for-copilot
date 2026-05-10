@@ -285,7 +285,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 
 		// Apply user overrides to built-in models (e.g. context window, provider)
 		const overriddenBuiltins = builtinInfos.map((info) => {
-			const override = userModels.find((um) => um.id === info.id);
+			const override = userModels.find((um) => um.key === info.id || um.id === info.id);
 			if (!override) {
 				return info;
 			}
@@ -297,14 +297,14 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			};
 		});
 		const userInfos: ModelPickerChatInformation[] = userModels
-			.filter((m) => !hiddenModels.includes(m.id) && !MODELS.some((bm) => bm.id === m.id))
+			.filter((m) => !hiddenModels.includes(m.key || m.id) && !MODELS.some((bm) => bm.id === (m.key || m.id)))
 			.filter((m) => m.providerId !== 'deepseek' || hasDeepSeekKey)
 			.filter((m) => m.providerId !== 'openai-responses' || hasResponsesConfigured)
 			.map((m) => {
 				const hasKey = hasKeyForModel(m.id, m.providerId);
 				const providerApiMode = m.providerId ? getProviderById(m.providerId)?.apiMode : undefined;
 				return {
-					id: m.id,
+					id: m.key || m.id,
 					name: m.name,
 					family: 'mimo-custom',
 					version: 'custom',
@@ -341,8 +341,8 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 	): Promise<void> {
 		const safeProgress = this.safeProgress(progress, modelInfo.id);
 		const modelDef = MODELS.find((m) => m.id === modelInfo.id);
-		const userModelDef = !modelDef ? getUserModels().find((m) => m.id === modelInfo.id) : undefined;
-		const configuredProviderId = modelDef?.providerId ?? userModelDef?.providerId;
+		const userModelDef = getUserModels().find((m) => (m.key || m.id) === modelInfo.id || m.id === modelInfo.id);
+		const configuredProviderId = userModelDef?.providerId ?? modelDef?.providerId;
 		const providerMode = configuredProviderId ? getProviderById(configuredProviderId)?.apiMode : undefined;
 		const isThinkingModel = modelDef?.capabilities.thinking ?? userModelDef?.thinking ?? false;
 		const isMiMo = modelDef?.thinkingParamStyle === 'mimo';
@@ -447,7 +447,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		return new Promise<void>((resolve, reject) => {
 			client.streamChatCompletion(
 				{
-					model: getApiModelId(modelInfo.id),
+					model: getApiModelId(userModelDef?.id ?? modelInfo.id),
 					messages: deepseekMessages,
 					stream: true,
 					tools,

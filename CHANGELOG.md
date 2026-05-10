@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [1.1.3](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.1.2...v1.1.3) (2026-05-10)
+
+### Features
+
+* support duplicate API model IDs via internal unique model keys
+* allow built-in model provider overrides to take effect at runtime
+* shorten model picker detail labels to compact tags
+
+### Bug Fixes
+
+* fix built-in model provider override priority for `gpt-5.5`
+* fix repeated API model entries being filtered from the model picker
+* fallback to JSON when Responses SSE ends with no visible output
+* emit `done` when both streaming and JSON fallback return no visible output
+
 ## [1.1.2](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.1.1...v1.1.2) (2026-05-10)
 
 ### Documentation

@@ -824,7 +824,7 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 	const needsThinkingParam = args.modelDef?.requiresThinkingParam ?? args.userModelDef?.requiresThinkingParam ?? true;
 	const userTemp = args.userModelDef?.temperature ?? args.modelDef?.temperature;
 	const userTopP = args.userModelDef?.topP ?? args.modelDef?.topP;
-	const statefulModelId = getApiModelId(args.modelInfo.id);
+	const statefulModelId = getApiModelId(args.userModelDef?.id ?? args.modelInfo.id);
 	const normalizedBaseUrl = args.baseUrl.replace(/\/+$/, '');
 	const fullMessages = await convertResponsesMessages(args.messages);
 	const marker = findLastResponsesStatefulMarker(statefulModelId, args.messages);
@@ -867,9 +867,9 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 	const requestChars = countResponsesRequestChars(requestMessages.input, requestInstructions);
 	const responsesVerbosity = getConfiguredResponsesVerbosity(
 		args.options as ResponsesModelConfigurationOptions,
-		args.modelInfo.id,
+		args.userModelDef?.id ?? args.modelInfo.id,
 	);
-	const normalizedEffort = normalizeResponsesEffort(args.modelInfo.id, args.thinkingEffort);
+	const normalizedEffort = normalizeResponsesEffort(args.userModelDef?.id ?? args.modelInfo.id, args.thinkingEffort);
 	const compressionSettings = resolveToolOutputCompressionSettings();
 	const client = new ResponsesClient(args.baseUrl, args.apiKey);
 	let currentThinkingId: string | null = null;
@@ -896,7 +896,7 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 	};
 
 	const buildRequest = (input: ResponsesInputItem[], instructions?: string, previousResponseId?: string): ResponsesRequest => ({
-		model: getApiModelId(args.modelInfo.id),
+		model: getApiModelId(args.userModelDef?.id ?? args.modelInfo.id),
 		input,
 		stream: true,
 		prompt_cache_key: `mimo-copilot-${statefulModelId}`,
@@ -1432,6 +1432,42 @@ class ResponsesClient {
 			reportEndThinking(state, callbacks);
 			logResponsesSummary(state);
 			flushPendingToolCalls(state, callbacks);
+			const hasVisibleOutput =
+				state.textEventCount > 0
+				|| state.toolEventCount > 0
+				|| state.reasoningEventCount > 0;
+			if (request.stream && !hasVisibleOutput) {
+				logger.debug('[Responses] fallback.nonstream reason=empty_stream_response');
+				logger.warn('[Responses] Stream ended without visible output; retrying without streaming.');
+				let producedFallbackOutput = false;
+				await this.fetchWithoutStreaming(
+					{ ...request, stream: false },
+					{
+						...callbacks,
+						onContent: (content: string) => {
+							producedFallbackOutput = true;
+							callbacks.onContent(content);
+						},
+						onThinking: (text: string) => {
+							if (text) {
+								producedFallbackOutput = true;
+							}
+							callbacks.onThinking(text);
+						},
+						onToolCall: (toolCall) => {
+							producedFallbackOutput = true;
+							callbacks.onToolCall(toolCall);
+						},
+					},
+					controller.signal,
+				);
+				if (!producedFallbackOutput) {
+					logger.warn('[Responses] JSON fallback also returned no visible output; emitting done sentinel.');
+					callbacks.onContent('done');
+				}
+				callbacks.onDone();
+				return;
+			}
 			callbacks.onDone();
 		} catch (error) {
 			if (error instanceof Error && error.name === 'AbortError') {
@@ -1440,10 +1476,20 @@ class ResponsesClient {
 				return;
 			}
 
-			if (request.stream && !emittedResponsePart && !streamConnected) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			const canRetryWithJsonFallback =
+				request.stream
+				&& (
+					(!emittedResponsePart && !streamConnected)
+					|| /stream_read_error/i.test(errorMessage)
+				);
+
+			if (canRetryWithJsonFallback) {
 				try {
-					logger.debug('[Responses] fallback.nonstream reason=no_stream_events');
-					logger.warn('[Responses] Streaming threw before content; retrying without streaming.', error);
+					logger.debug(
+						`[Responses] fallback.nonstream reason=${(!emittedResponsePart && !streamConnected) ? 'no_stream_events' : 'stream_read_error'}`,
+					);
+					logger.warn('[Responses] Streaming failed; retrying without streaming.', error);
 					await this.fetchWithoutStreaming({ ...request, stream: false }, callbacks, controller.signal);
 					callbacks.onDone();
 					return;
