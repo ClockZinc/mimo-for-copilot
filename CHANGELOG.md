@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.1.4](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.1.3...v1.1.4) (2026-05-11)
+
+### Maintenance
+
+* bump extension version to 1.1.4
+
 ## [1.1.3](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.1.2...v1.1.3) (2026-05-10)
 
 ### Features
