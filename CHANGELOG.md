@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [1.1.5](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.1.4...v1.1.5) (2026-05-18)
+
+### Features
+
+* avoid built-in model picker ID collisions with Copilot-provided models by using internal unique picker keys
+
+### Bug Fixes
+
+* keep Responses API model overrides working after built-in picker ID normalization
+* default long tool-output truncation to off in the configuration view
+* collapse Agentic Memory and Responses compression sections by default in provider configuration
+
 ## [1.1.4](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.1.3...v1.1.4) (2026-05-11)
 
 ### Maintenance
