@@ -325,7 +325,7 @@
         },
         "mimo-copilot.responses.toolOutputCompression.truncateLongToolOutputs": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Truncate long tool outputs with head/tail retention. Requires the master compression switch to be enabled."
         },
         "mimo-copilot.responses.toolOutputCompression.summarizeStructuredOutputs": {

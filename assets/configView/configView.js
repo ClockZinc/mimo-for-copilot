@@ -11,7 +11,7 @@
 	let compressionSettings = {
 		enabled: true,
 		compressImages: true,
-		truncateLongToolOutputs: true,
+		truncateLongToolOutputs: false,
 		summarizeStructuredOutputs: false,
 		useToolTypePolicies: true,
 		showCompressionNotice: false,
@@ -163,6 +163,7 @@
 			compressionKeepOriginalImages,
 		].forEach(function (el) { el.disabled = !enabled; });
 		[
+			compressionMaxChars,
 			compressionSmallImageKb,
 			compressionImageOutputFormat,
 			compressionMaxImageKb,
@@ -171,6 +172,7 @@
 			compressionFallbackImageMaxEdge,
 			compressionFallbackImageQuality,
 		].forEach(function (el) { el.disabled = !enabled || !compressionImages.checked; });
+		compressionMaxChars.disabled = !enabled || !truncation;
 		compressionKeepOriginalImages.disabled = !enabled || compressionImages.checked;
 		compressionToolPolicies.disabled = !enabled || !truncation;
 		if (!truncation) {

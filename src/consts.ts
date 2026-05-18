@@ -214,6 +214,24 @@ export const MODELS: ModelDefinition[] = [
 	},
 ];
 
+/** Prefix used to keep built-in model picker IDs globally unique. */
+export const BUILTIN_MODEL_KEY_PREFIX = 'builtin::';
+
+/** Build the unique picker ID exposed for a built-in model. */
+export function getBuiltinModelKey(model: Pick<ModelDefinition, 'id' | 'providerId'>): string {
+	return `${BUILTIN_MODEL_KEY_PREFIX}${model.providerId ?? 'default'}::${model.id}`;
+}
+
+/** Resolve a picker model ID back to its built-in model definition, if any. */
+export function getBuiltinModelByPickerId(modelId: string): ModelDefinition | undefined {
+	return MODELS.find((model) => model.id === modelId || getBuiltinModelKey(model) === modelId);
+}
+
+/** Resolve a picker model ID back to the raw model ID sent to APIs/settings. */
+export function getBaseModelId(modelId: string): string {
+	return getBuiltinModelByPickerId(modelId)?.id ?? modelId;
+}
+
 /** Default provider definitions. Users can add more via the config view. */
 export const DEFAULT_PROVIDERS: ProviderDefinition[] = [
 	{ id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com' },

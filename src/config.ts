@@ -1,5 +1,5 @@
 import vscode from 'vscode';
-import { CONFIG_SECTION, DEFAULT_PROVIDERS } from './consts';
+import { CONFIG_SECTION, DEFAULT_PROVIDERS, getBaseModelId } from './consts';
 import type { ProviderDefinition, UserModelConfig } from './types';
 
 export function getUserModelKey(model: Pick<UserModelConfig, 'id' | 'key'>): string {
@@ -72,9 +72,10 @@ export function getBaseUrl(): string {
  */
 export function getApiModelId(vscodeModelId: string): string {
 	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	const resolvedModelId = getBaseModelId(vscodeModelId);
 	const overrides = config.get<Record<string, string>>('modelIdOverrides');
-	const override = overrides?.[vscodeModelId]?.trim();
-	return override || vscodeModelId;
+	const override = overrides?.[resolvedModelId]?.trim();
+	return override || resolvedModelId;
 }
 
 /**
@@ -92,7 +93,7 @@ export function getToolOutputCompressionSettings(): ToolOutputCompressionSetting
 	return {
 		enabled: config.get<boolean>('responses.toolOutputCompression.enabled', true),
 		compressImages: config.get<boolean>('responses.toolOutputCompression.compressImages', true),
-		truncateLongToolOutputs: config.get<boolean>('responses.toolOutputCompression.truncateLongToolOutputs', true),
+		truncateLongToolOutputs: config.get<boolean>('responses.toolOutputCompression.truncateLongToolOutputs', false),
 		summarizeStructuredOutputs: config.get<boolean>('responses.toolOutputCompression.summarizeStructuredOutputs', false),
 		useToolTypePolicies: config.get<boolean>('responses.toolOutputCompression.useToolTypePolicies', true),
 		showCompressionNotice: config.get<boolean>('responses.toolOutputCompression.showNotice', false),
@@ -195,7 +196,7 @@ export function isProviderSupportedForModel(modelId: string | undefined, provide
 	if (!modelId) {
 		return true;
 	}
-	const supportedProviders = MODEL_PROVIDER_COMPATIBILITY[modelId];
+	const supportedProviders = MODEL_PROVIDER_COMPATIBILITY[getBaseModelId(modelId)];
 	return !supportedProviders || supportedProviders.includes(providerId);
 }
 

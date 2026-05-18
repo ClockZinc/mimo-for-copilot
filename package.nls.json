@@ -1,7 +1,7 @@
 {
   "mimo-copilot.displayName": "MiMo for Copilot Chat",
   "mimo-copilot.description": "Use MiMo, DeepSeek, and OpenAI Responses-compatible models in Copilot Chat. Vision, thinking mode, tools, memory mode, multi-provider BYOK.",
-  "mimo-copilot.providerDisplayName": "MiMo, DeepSeek & Responses",
+  "mimo-copilot.providerDisplayName": "mimo",
   "mimo-copilot.command.setApiKey": "MiMo: Set API Key",
   "mimo-copilot.command.getApiKey": "MiMo: Get API Key",
   "mimo-copilot.command.clearApiKey": "MiMo: Clear API Key",

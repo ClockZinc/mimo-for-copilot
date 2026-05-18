@@ -7,10 +7,11 @@ import {
 	getCandidateProvidersForModel,
 	getProviderById,
 	resolveProviderForModel,
+	getUserModelKey,
 	getUserModels,
 	getHiddenModels,
 } from '../config';
-import { MODELS } from '../consts';
+import { MODELS, getBaseModelId, getBuiltinModelByPickerId, getBuiltinModelKey } from '../consts';
 import { t } from '../i18n';
 import { logger } from '../logger';
 import type { DeepSeekToolCall, ModelDefinition } from '../types';
@@ -285,7 +286,11 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 
 		// Apply user overrides to built-in models (e.g. context window, provider)
 		const overriddenBuiltins = builtinInfos.map((info) => {
-			const override = userModels.find((um) => um.key === info.id || um.id === info.id);
+			const builtinModelId = getBaseModelId(info.id);
+			const override = userModels.find((um) => {
+				const userKey = getUserModelKey(um);
+				return userKey === info.id || userKey === builtinModelId || um.id === builtinModelId;
+			});
 			if (!override) {
 				return info;
 			}
@@ -340,8 +345,13 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		token: vscode.CancellationToken,
 	): Promise<void> {
 		const safeProgress = this.safeProgress(progress, modelInfo.id);
-		const modelDef = MODELS.find((m) => m.id === modelInfo.id);
-		const userModelDef = getUserModels().find((m) => (m.key || m.id) === modelInfo.id || m.id === modelInfo.id);
+		const modelDef = getBuiltinModelByPickerId(modelInfo.id);
+		const baseModelId = modelDef?.id ?? getBaseModelId(modelInfo.id);
+		const userModelDef = getUserModels().find((m) => {
+			const userKey = getUserModelKey(m);
+			return userKey === modelInfo.id || m.id === modelInfo.id || userKey === baseModelId || m.id === baseModelId;
+		});
+		const resolvedModelId = userModelDef?.id ?? modelDef?.id ?? baseModelId;
 		const configuredProviderId = userModelDef?.providerId ?? modelDef?.providerId;
 		const providerMode = configuredProviderId ? getProviderById(configuredProviderId)?.apiMode : undefined;
 		const isThinkingModel = modelDef?.capabilities.thinking ?? userModelDef?.thinking ?? false;
@@ -373,8 +383,8 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			}
 		}
 		logger.debug(`[Request] providerKeyStatus: ${JSON.stringify(Object.fromEntries(providerKeyStatus))}`);
-		const { baseUrl, providerId } = resolveProviderForModel(modelProviderId, providerKeyStatus, modelInfo.id);
-		logger.debug(`[Request] model=${modelInfo.id} inputProvider=${modelProviderId ?? '(none)'} → resolved provider=${providerId} baseUrl=${baseUrl}`);
+		const { baseUrl, providerId } = resolveProviderForModel(modelProviderId, providerKeyStatus, resolvedModelId);
+		logger.debug(`[Request] model=${modelInfo.id} rawModel=${resolvedModelId} inputProvider=${modelProviderId ?? '(none)'} → resolved provider=${providerId} baseUrl=${baseUrl}`);
 		const apiKey = await this.authManager.getApiKeyForProvider(providerId);
 		logger.debug(`[Request] apiKey found for provider=${providerId}: ${apiKey ? 'YES' : 'NO'}`);
 		if (!apiKey) {
@@ -447,7 +457,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		return new Promise<void>((resolve, reject) => {
 			client.streamChatCompletion(
 				{
-					model: getApiModelId(userModelDef?.id ?? modelInfo.id),
+					model: getApiModelId(userModelDef?.id ?? modelDef?.id ?? modelInfo.id),
 					messages: deepseekMessages,
 					stream: true,
 					tools,
@@ -631,7 +641,7 @@ function toChatInfo(m: ModelDefinition, hasApiKey: boolean, effectiveProviderId?
 	const isResponses = m.thinkingParamStyle === 'responses';
 	const showProvider = effectiveProviderId || m.providerId || 'default';
 	return {
-		id: m.id,
+		id: getBuiltinModelKey(m),
 		name: m.name,
 		family: m.family,
 		version: m.version,

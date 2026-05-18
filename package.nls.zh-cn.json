@@ -1,7 +1,7 @@
 {
   "mimo-copilot.displayName": "MiMo for Copilot Chat",
   "mimo-copilot.description": "在 Copilot Chat 中使用 MiMo、DeepSeek 以及兼容 OpenAI Responses 的模型。支持视觉、思考模式、工具调用、记忆模式和多 Provider BYOK。",
-  "mimo-copilot.providerDisplayName": "MiMo、DeepSeek 与 Responses",
+  "mimo-copilot.providerDisplayName": "mimo",
   "mimo-copilot.command.setApiKey": "MiMo: 设置 API Key",
   "mimo-copilot.command.getApiKey": "MiMo: 获取 API Key",
   "mimo-copilot.command.clearApiKey": "MiMo: 清除 API Key",

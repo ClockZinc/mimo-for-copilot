@@ -570,14 +570,19 @@ export class ConfigViewPanel {
 </div>
 <div class="form-actions"><button id="mf-save" class="btn primary">${t('configView.models.form.save')}</button><button id="mf-cancel" class="btn secondary">${t('configView.models.form.cancel')}</button></div>
 </section>
-<section><div class="section-header"><h2>${t('configView.memory.section')}</h2></div>
+<section><details class="collapsible-section">
+<summary class="section-toggle"><h2>${t('configView.memory.section')}</h2></summary>
+<div class="section-body">
 <div class="form-grid">
 <div class="field"><label for="memoryEnabled">${t('configView.memory.enableLabel')}</label><div class="checkbox-row"><input id="memoryEnabled" type="checkbox"/><span>${t('configView.memory.enableText')}</span></div><div class="hint">${t('configView.memory.enableHint')}</div></div>
 <div class="field"><label for="memoryRecallModel">${t('configView.memory.modelLabel')}</label><select id="memoryRecallModel"></select><div class="hint">${t('configView.memory.modelHint')}</div></div>
 </div>
 <div class="form-actions"><button id="memorySaveBtn" class="btn primary">${t('configView.memory.save')}</button></div>
-</section>
-<section><div class="section-header"><h2>${t('configView.compression.section')}</h2></div>
+</div>
+</details></section>
+<section><details class="collapsible-section">
+<summary class="section-toggle"><h2>${t('configView.compression.section')}</h2></summary>
+<div class="section-body">
 <div class="hint">${t('configView.compression.description')}</div>
 <div class="form-grid compression-grid">
 <div class="field"><label for="compressionEnabled">${t('configView.compression.enabledLabel')}</label><div class="checkbox-row"><input id="compressionEnabled" type="checkbox"/><span>${t('configView.compression.enabledText')}</span></div><div class="hint">${t('configView.compression.enabledHint')}</div></div>
@@ -598,7 +603,8 @@ export class ConfigViewPanel {
 </div>
 <div id="compressionCouplingHint" class="notice"></div>
 <div class="form-actions"><button id="compressionSaveBtn" class="btn primary">${t('configView.compression.save')}</button></div>
-</section>
+</div>
+</details></section>
 </div>
 <script nonce="${nonce}" src="${jsUri}"></script>
 </body>

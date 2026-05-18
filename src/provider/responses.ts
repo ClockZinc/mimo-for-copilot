@@ -3,6 +3,7 @@ import type { CancellationToken } from 'vscode';
 import type sharp from 'sharp';
 import { getApiModelId, getToolOutputCompressionSettings } from '../config';
 import type { ToolImageOutputFormat, ToolOutputCompressionSettings } from '../config';
+import { getBaseModelId } from '../consts';
 import { t } from '../i18n';
 import { logger } from '../logger';
 import { updateStatusBarFromUsage } from '../statusBar';
@@ -824,7 +825,8 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 	const needsThinkingParam = args.modelDef?.requiresThinkingParam ?? args.userModelDef?.requiresThinkingParam ?? true;
 	const userTemp = args.userModelDef?.temperature ?? args.modelDef?.temperature;
 	const userTopP = args.userModelDef?.topP ?? args.modelDef?.topP;
-	const statefulModelId = getApiModelId(args.userModelDef?.id ?? args.modelInfo.id);
+	const resolvedModelId = args.userModelDef?.id ?? args.modelDef?.id ?? getBaseModelId(args.modelInfo.id);
+	const statefulModelId = getApiModelId(resolvedModelId);
 	const normalizedBaseUrl = args.baseUrl.replace(/\/+$/, '');
 	const fullMessages = await convertResponsesMessages(args.messages);
 	const marker = findLastResponsesStatefulMarker(statefulModelId, args.messages);
@@ -867,9 +869,9 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 	const requestChars = countResponsesRequestChars(requestMessages.input, requestInstructions);
 	const responsesVerbosity = getConfiguredResponsesVerbosity(
 		args.options as ResponsesModelConfigurationOptions,
-		args.userModelDef?.id ?? args.modelInfo.id,
+		resolvedModelId,
 	);
-	const normalizedEffort = normalizeResponsesEffort(args.userModelDef?.id ?? args.modelInfo.id, args.thinkingEffort);
+	const normalizedEffort = normalizeResponsesEffort(resolvedModelId, args.thinkingEffort);
 	const compressionSettings = resolveToolOutputCompressionSettings();
 	const client = new ResponsesClient(args.baseUrl, args.apiKey);
 	let currentThinkingId: string | null = null;
@@ -896,7 +898,7 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 	};
 
 	const buildRequest = (input: ResponsesInputItem[], instructions?: string, previousResponseId?: string): ResponsesRequest => ({
-		model: getApiModelId(args.userModelDef?.id ?? args.modelInfo.id),
+		model: getApiModelId(resolvedModelId),
 		input,
 		stream: true,
 		prompt_cache_key: `mimo-copilot-${statefulModelId}`,
