@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { ProviderDefinition, UserModelConfig } from '../types';
-import { CONFIG_SECTION, MODELS } from '../consts';
+import { CONFIG_SECTION, MODELS, getBuiltinModelByPickerId, getBuiltinModelKey } from '../consts';
 import { getProviders, getRelatedProviders, getToolOutputCompressionSettings, getUserModelKey } from '../config';
 import type { ToolOutputCompressionSettings } from '../config';
 import { updateMiMoModelProviders } from '../auth';
@@ -30,6 +30,7 @@ type IncomingMessage =
 	| { type: 'deleteProvider'; providerId: string }
 	| { type: 'addModel'; model: UserModelConfig }
 	| { type: 'updateModel'; model: UserModelConfig; originalId: string }
+	| { type: 'showModel'; modelId: string }
 	| { type: 'deleteModel'; modelId: string }
 	| { type: 'fetchModels'; providerId: string; baseUrl: string; apiKey: string }
 	| { type: 'requestConfirm'; id: string; message: string };
@@ -133,6 +134,9 @@ export class ConfigViewPanel {
 			case 'updateModel':
 				await this.updateModel(message.model, message.originalId);
 				break;
+			case 'showModel':
+				await this.showModel(message.modelId);
+				break;
 			case 'deleteModel':
 				await this.deleteModel(message.modelId);
 				break;
@@ -195,13 +199,19 @@ export class ConfigViewPanel {
 		const hiddenModels = this.getHiddenModels();
 		const userModels = this.getUserModels();
 		const allModels: Array<UserModelConfig & { builtin?: boolean; hidden?: boolean }> = [];
+		const builtinIds = new Set(MODELS.map((model) => model.id));
+		const builtinKeys = new Set(MODELS.map((model) => getBuiltinModelKey(model)));
 
 		for (const m of MODELS) {
 			const isHidden = hiddenModels.includes(m.id);
+			const builtinKey = getBuiltinModelKey(m);
 			// Merge user overrides for built-in models
-			const override = userModels.find((um) => getUserModelKey(um) === m.id || um.id === m.id);
+			const override = userModels.find((um) => {
+				const userKey = getUserModelKey(um);
+				return userKey === builtinKey || userKey === m.id;
+			});
 			allModels.push({
-				key: override?.key ?? m.id,
+				key: builtinKey,
 				id: m.id,
 				name: override?.name || m.name,
 				providerId: override?.providerId || getEffectiveProviderId(m.providerId),
@@ -220,7 +230,8 @@ export class ConfigViewPanel {
 		}
 
 		for (const m of userModels) {
-			if (!MODELS.some((bm) => bm.id === getUserModelKey(m))) {
+			const userKey = getUserModelKey(m);
+			if (!builtinIds.has(userKey) && !builtinKeys.has(userKey)) {
 				allModels.push({ ...m, builtin: false, hidden: false });
 			}
 		}
@@ -432,6 +443,15 @@ export class ConfigViewPanel {
 		);
 	}
 
+	private async showModel(modelId: string) {
+		const builtinModel = getBuiltinModelByPickerId(modelId);
+		if (!builtinModel) {
+			return;
+		}
+		await this.unhideModel(builtinModel.id);
+		await this.sendInit();
+	}
+
 	private async addModel(model: UserModelConfig) {
 		const config = vscode.workspace.getConfiguration();
 		const models = this.getUserModels();
@@ -464,27 +484,26 @@ export class ConfigViewPanel {
 	}
 
 	private async deleteModel(modelId: string) {
-		const isBuiltin = MODELS.some((m) => m.id === modelId);
-		if (isBuiltin) {
+		const builtinModel = getBuiltinModelByPickerId(modelId);
+		if (builtinModel) {
 			const config = vscode.workspace.getConfiguration();
 			const hidden = this.getHiddenModels();
-			if (!hidden.includes(modelId)) {
-				hidden.push(modelId);
+			if (!hidden.includes(builtinModel.id)) {
+				hidden.push(builtinModel.id);
 			}
 			await config.update(
 				`${CONFIG_SECTION}.hiddenModels`,
 				hidden,
 				vscode.ConfigurationTarget.Global,
 			);
-			const models = this.getUserModels().filter((m) => getUserModelKey(m) !== modelId);
-			await config.update(`${CONFIG_SECTION}.models`, models, vscode.ConfigurationTarget.Global);
+			await this.sendInit();
 		} else {
 			const config = vscode.workspace.getConfiguration();
 			const models = this.getUserModels().filter((m) => getUserModelKey(m) !== modelId);
 			await config.update(`${CONFIG_SECTION}.models`, models, vscode.ConfigurationTarget.Global);
+			await this.sendInit();
 		}
 		vscode.window.showInformationMessage(t('configView.models.removed', modelId));
-		await this.sendInit();
 	}
 
 	// ---- Fetch Models ----

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.1.6](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.1.5...v1.1.6) (2026-05-19)
+
+### Bug Fixes
+
+* keep duplicate built-in models with the same API id from overwriting each other when hiding/showing models
+
 ## [1.1.5](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.1.4...v1.1.5) (2026-05-18)
 
 ### Features

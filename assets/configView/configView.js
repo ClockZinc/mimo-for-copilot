@@ -515,29 +515,7 @@
 	}
 
 	function showModel(id) {
-		// Unhide a built-in model by deleting it from hiddenModels (backend handles this)
-		// We re-save the model with its current config to trigger unhide
-		var m = models.find(function (x) { return (x.key || x.id) === id; });
-		if (!m) return;
-		post({
-			type: 'updateModel',
-			model: {
-				key: m.key || m.id,
-				id: m.id,
-				name: m.name,
-				providerId: m.providerId,
-				maxInputTokens: m.maxInputTokens,
-				maxOutputTokens: m.maxOutputTokens,
-				toolCalling: m.toolCalling,
-				nativeVision: m.nativeVision,
-				enhancedVision: m.enhancedVision,
-				thinking: m.thinking,
-				requiresThinkingParam: m.requiresThinkingParam,
-				temperature: m.temperature,
-				topP: m.topP,
-			},
-			originalId: m.key || m.id,
-		});
+		post({ type: 'showModel', modelId: id });
 	}
 
 	// ===== Utils =====
