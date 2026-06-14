@@ -192,6 +192,11 @@ export const MODELS: ModelDefinition[] = [
 		thinkingParamStyle: 'responses',
 		providerId: 'openai-responses',
 		temperature: 1,
+		supportedApiModes: ['responses'],
+		reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+		defaultReasoningEffort: 'none',
+		verbosityOptions: ['low', 'medium', 'high'],
+		defaultVerbosity: 'high',
 	},
 	{
 		id: 'gpt-5.5',
@@ -211,6 +216,11 @@ export const MODELS: ModelDefinition[] = [
 		thinkingParamStyle: 'responses',
 		providerId: 'openai-responses',
 		temperature: 1,
+		supportedApiModes: ['responses'],
+		reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+		defaultReasoningEffort: 'medium',
+		verbosityOptions: ['low', 'medium', 'high'],
+		defaultVerbosity: 'medium',
 	},
 ];
 

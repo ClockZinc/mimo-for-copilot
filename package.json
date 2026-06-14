@@ -3,7 +3,7 @@
   "displayName": "MiMo for Copilot Chat",
   "description": "Use MiMo V2.5 Pro & DeepSeek V4 models in Copilot Chat. Vision, thinking mode, agent tools. Multi-provider BYOK.",
   "icon": "resources/mimo.png",
-  "version": "1.1.6",
+  "version": "1.1.8",
   "publisher": "clockzincbit",
   "license": "MIT",
   "repository": {
@@ -104,6 +104,10 @@
       {
         "command": "mimo-copilot.showLogs",
         "title": "%mimo-copilot.command.showLogs%"
+      },
+      {
+        "command": "mimo-copilot.openOutputRatePanel",
+        "title": "%mimo-copilot.command.openOutputRatePanel%"
       },
       {
         "command": "mimo-copilot.remember",
@@ -256,6 +260,54 @@
               },
               "topP": {
                 "type": "number"
+              },
+              "supportedApiModes": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "chat-completions",
+                    "responses"
+                  ]
+                }
+              },
+              "reasoningEfforts": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "low",
+                    "medium",
+                    "high",
+                    "max",
+                    "xhigh",
+                    "on",
+                    "off"
+                  ]
+                }
+              },
+              "defaultReasoningEffort": {
+                "type": "string"
+              },
+              "verbosityOptions": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high"
+                  ]
+                }
+              },
+              "defaultVerbosity": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
               }
             },
             "required": [
@@ -335,7 +387,7 @@
         },
         "mimo-copilot.responses.toolOutputCompression.useToolTypePolicies": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Apply tool-specific output budgets and head/tail ratios. Only works when master compression and long-output truncation are enabled."
         },
         "mimo-copilot.responses.toolOutputCompression.showNotice": {
@@ -407,6 +459,32 @@
           "type": "boolean",
           "default": false,
           "description": "When image compression is disabled, replay original image tool outputs instead of omitting them. This can greatly increase context size."
+        },
+        "mimo-copilot.responses.log.expanded": {
+          "type": "boolean",
+          "default": false,
+          "description": "%mimo-copilot.config.responses.log.expanded.description%"
+        },
+        "mimo-copilot.responses.waitingForResponseThresholdSeconds": {
+          "type": "number",
+          "default": 15,
+          "minimum": 1,
+          "maximum": 300,
+          "description": "%mimo-copilot.config.responses.waitingForResponseThresholdSeconds.description%"
+        },
+        "mimo-copilot.responses.noFeedbackReconnectSeconds": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 600,
+          "description": "%mimo-copilot.config.responses.noFeedbackReconnectSeconds.description%"
+        },
+        "mimo-copilot.responses.maxNoFeedbackReconnectAttempts": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "%mimo-copilot.config.responses.maxNoFeedbackReconnectAttempts.description%"
         },
         "mimo-copilot.modelIdOverrides": {
           "type": "object",

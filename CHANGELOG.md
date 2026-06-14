@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [1.1.7](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.1.6...v1.1.7) (2026-06-14)
+
+### Bug Fixes
+
+* parse final `response.completed` payloads from Responses API streams to avoid false empty-stream fallbacks
+* avoid replaying completed Responses requests as non-stream JSON creates when only lifecycle SSE events are emitted
+
+### Diagnostics
+
+* add detailed Responses completed-payload and fallback-decision debug logs
+
 ## [1.1.6](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.1.5...v1.1.6) (2026-05-19)
 
 ### Bug Fixes

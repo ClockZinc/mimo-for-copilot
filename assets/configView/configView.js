@@ -13,7 +13,7 @@
 		compressImages: true,
 		truncateLongToolOutputs: false,
 		summarizeStructuredOutputs: false,
-		useToolTypePolicies: true,
+		useToolTypePolicies: false,
 		showCompressionNotice: false,
 		maxToolOutputChars: 8000,
 		smallToolImageBytes: 262144,
@@ -25,9 +25,32 @@
 		fallbackImageQuality: 70,
 		keepOriginalImagesWhenDisabled: false,
 	};
+	let responsesRuntimeSettings = {
+		waitingForResponseThresholdSeconds: 15,
+		noFeedbackReconnectSeconds: 30,
+		maxNoFeedbackReconnectAttempts: 3,
+	};
 	let strings = {};
 	let editingProviderId = null;
 	let editingModelId = null;
+	const DEFAULT_REASONING_EFFORTS = ['none', 'high', 'max'];
+	const DEFAULT_VERBOSITY_OPTIONS = ['low', 'medium', 'high'];
+	const MODEL_TEMPLATES = {
+		'gpt-5.5': {
+			name: 'GPT-5.5', maxInputTokens: 258000, maxOutputTokens: 128000,
+			toolCalling: true, nativeVision: true, enhancedVision: false, thinking: true, requiresThinkingParam: true,
+			temperature: 1, supportedApiModes: ['responses'],
+			reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'], defaultReasoningEffort: 'medium',
+			verbosityOptions: ['low', 'medium', 'high'], defaultVerbosity: 'medium',
+		},
+		'gpt-5.4': {
+			name: 'GPT-5.4', maxInputTokens: 1050000, maxOutputTokens: 128000,
+			toolCalling: true, nativeVision: true, enhancedVision: false, thinking: true, requiresThinkingParam: true,
+			temperature: 1, supportedApiModes: ['responses'],
+			reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'], defaultReasoningEffort: 'none',
+			verbosityOptions: ['low', 'medium', 'high'], defaultVerbosity: 'high',
+		},
+	};
 
 	// ---- DOM refs ----
 	const providerList = document.getElementById('providerList');
@@ -56,6 +79,10 @@
 	const compressionFallbackImageMaxEdge = document.getElementById('compressionFallbackImageMaxEdge');
 	const compressionFallbackImageQuality = document.getElementById('compressionFallbackImageQuality');
 	const compressionKeepOriginalImages = document.getElementById('compressionKeepOriginalImages');
+	const waitingForResponseThresholdSecondsInput = document.getElementById('waitingForResponseThresholdSeconds');
+	const noFeedbackReconnectSecondsInput = document.getElementById('noFeedbackReconnectSeconds');
+	const maxNoFeedbackReconnectAttemptsInput = document.getElementById('maxNoFeedbackReconnectAttempts');
+	const responsesRuntimeSaveBtn = document.getElementById('responsesRuntimeSaveBtn');
 	const compressionCouplingHint = document.getElementById('compressionCouplingHint');
 	const compressionSaveBtn = document.getElementById('compressionSaveBtn');
 
@@ -71,9 +98,11 @@
 				models = msg.payload.models || [];
 				memorySettings = msg.payload.memorySettings || memorySettings;
 				compressionSettings = msg.payload.compressionSettings || compressionSettings;
+				responsesRuntimeSettings = msg.payload.responsesRuntimeSettings || responsesRuntimeSettings;
 				strings = msg.payload.strings || strings;
 				renderMemorySettings();
 				renderCompressionSettings();
+				renderResponsesRuntimeSettings();
 				renderProviders();
 				renderModels();
 				break;
@@ -96,6 +125,67 @@
 			var value = args[Number(index)];
 			return value === undefined ? '' : String(value);
 		});
+	}
+
+	function normalizeModelTemplateId(id) {
+		return String(id || '').trim().toLowerCase().replace(/^gpt(\d)/, 'gpt-$1');
+	}
+
+	function checkedValues(containerId) {
+		var el = document.getElementById(containerId);
+		return Array.prototype.slice.call(el.querySelectorAll('input[type="checkbox"]:checked')).map(function (input) { return input.value; });
+	}
+
+	function setCheckedValues(containerId, values) {
+		var set = new Set(values || []);
+		var el = document.getElementById(containerId);
+		Array.prototype.slice.call(el.querySelectorAll('input[type="checkbox"]')).forEach(function (input) {
+			input.checked = set.has(input.value);
+		});
+	}
+
+	function renderSelectOptions(selectId, values, selected) {
+		var select = document.getElementById(selectId);
+		select.innerHTML = '';
+		(values || []).forEach(function (value) {
+			var option = document.createElement('option');
+			option.value = value;
+			option.textContent = value;
+			select.appendChild(option);
+		});
+		if (selected && values && values.indexOf(selected) >= 0) select.value = selected;
+	}
+
+	function updateModelOptionSelects(defaultReasoning, defaultVerbosity) {
+		var efforts = checkedValues('mf-reasoningEfforts');
+		var verbosity = checkedValues('mf-verbosityOptions');
+		renderSelectOptions('mf-defaultReasoningEffort', efforts, defaultReasoning || document.getElementById('mf-defaultReasoningEffort').value || efforts[0]);
+		renderSelectOptions('mf-defaultVerbosity', verbosity, defaultVerbosity || document.getElementById('mf-defaultVerbosity').value || verbosity[0]);
+	}
+
+	function applyModelTemplateIfKnown(force) {
+		if (editingModelId && !force) return;
+		var id = normalizeModelTemplateId(document.getElementById('mf-id').value);
+		var template = MODEL_TEMPLATES[id];
+		if (!template) return;
+		function setIfEmpty(elementId, value) {
+			var el = document.getElementById(elementId);
+			if (force || !el.value) el.value = value === undefined || value === null ? '' : String(value);
+		}
+		setIfEmpty('mf-name', template.name);
+		setIfEmpty('mf-maxInputTokens', template.maxInputTokens);
+		setIfEmpty('mf-maxOutputTokens', template.maxOutputTokens);
+		setIfEmpty('mf-temperature', template.temperature);
+		setIfEmpty('mf-topP', template.topP);
+		document.getElementById('mf-toolCalling').value = String(!!template.toolCalling);
+		document.getElementById('mf-nativeVision').value = String(!!template.nativeVision);
+		document.getElementById('mf-enhancedVision').value = String(!!template.enhancedVision);
+		document.getElementById('mf-thinking').value = String(!!template.thinking);
+		document.getElementById('mf-requiresThinkingParam').value = String(!!template.requiresThinkingParam);
+		setCheckedValues('mf-supportedApiModes', template.supportedApiModes);
+		setCheckedValues('mf-reasoningEfforts', template.reasoningEfforts);
+		setCheckedValues('mf-verbosityOptions', template.verbosityOptions);
+		updateModelOptionSelects(template.defaultReasoningEffort, template.defaultVerbosity);
 	}
 
 	function renderMemorySettings() {
@@ -142,6 +232,12 @@
 		compressionFallbackImageQuality.value = compressionSettings.fallbackImageQuality || 70;
 		compressionKeepOriginalImages.checked = !!compressionSettings.keepOriginalImagesWhenDisabled;
 		updateCompressionInterlocks();
+	}
+
+	function renderResponsesRuntimeSettings() {
+		waitingForResponseThresholdSecondsInput.value = responsesRuntimeSettings.waitingForResponseThresholdSeconds || 15;
+		noFeedbackReconnectSecondsInput.value = responsesRuntimeSettings.noFeedbackReconnectSeconds || 30;
+		maxNoFeedbackReconnectAttemptsInput.value = responsesRuntimeSettings.maxNoFeedbackReconnectAttempts || 3;
 	}
 
 	function updateCompressionInterlocks() {
@@ -216,6 +312,17 @@
 				fallbackImageMaxEdge: parseInt(compressionFallbackImageMaxEdge.value, 10) || 512,
 				fallbackImageQuality: parseInt(compressionFallbackImageQuality.value, 10) || 70,
 				keepOriginalImagesWhenDisabled: !!compressionKeepOriginalImages.checked,
+			},
+		});
+	});
+
+	responsesRuntimeSaveBtn.addEventListener('click', function () {
+		post({
+			type: 'saveResponsesRuntimeSettings',
+			settings: {
+				waitingForResponseThresholdSeconds: parseInt(waitingForResponseThresholdSecondsInput.value, 10) || 15,
+				noFeedbackReconnectSeconds: parseInt(noFeedbackReconnectSecondsInput.value, 10) || 30,
+				maxNoFeedbackReconnectAttempts: parseInt(maxNoFeedbackReconnectAttemptsInput.value, 10) || 3,
 			},
 		});
 	});
@@ -395,6 +502,7 @@
 				document.getElementById('mf-id').value = b.dataset.id;
 				document.getElementById('mf-name').value = b.dataset.id;
 				document.getElementById('mf-providerId').value = providerId;
+				applyModelTemplateIfKnown(true);
 			});
 		});
 	}
@@ -440,6 +548,10 @@
 			document.getElementById('mf-enhancedVision').value = m ? String(!!m.enhancedVision) : 'true';
 			document.getElementById('mf-thinking').value = m ? String(!!m.thinking) : 'true';
 			document.getElementById('mf-requiresThinkingParam').value = m && m.requiresThinkingParam !== undefined ? String(!!m.requiresThinkingParam) : 'true';
+			setCheckedValues('mf-supportedApiModes', m && m.supportedApiModes && m.supportedApiModes.length ? m.supportedApiModes : []);
+			setCheckedValues('mf-reasoningEfforts', m && m.reasoningEfforts && m.reasoningEfforts.length ? m.reasoningEfforts : DEFAULT_REASONING_EFFORTS);
+			setCheckedValues('mf-verbosityOptions', m && m.verbosityOptions && m.verbosityOptions.length ? m.verbosityOptions : DEFAULT_VERBOSITY_OPTIONS);
+			updateModelOptionSelects(m ? m.defaultReasoningEffort : undefined, m ? m.defaultVerbosity : undefined);
 		} else {
 			document.getElementById('mfTitle').textContent = strings.modelsFormAddTitle;
 			document.getElementById('mf-id').value = '';
@@ -452,11 +564,21 @@
 			document.getElementById('mf-topP').value = '';
 			document.getElementById('mf-toolCalling').value = 'true';
 			document.getElementById('mf-nativeVision').value = 'false';
-			document.getElementById('mf-enhancedVision').value = 'true';
+			document.getElementById('mf-enhancedVision').value = 'false';
 			document.getElementById('mf-thinking').value = 'true';
 			document.getElementById('mf-requiresThinkingParam').value = 'true';
+			setCheckedValues('mf-supportedApiModes', []);
+			setCheckedValues('mf-reasoningEfforts', DEFAULT_REASONING_EFFORTS);
+			setCheckedValues('mf-verbosityOptions', DEFAULT_VERBOSITY_OPTIONS);
+			updateModelOptionSelects('high', 'high');
 		}
+		applyModelTemplateIfKnown(false);
 	}
+
+	['mf-reasoningEfforts', 'mf-verbosityOptions'].forEach(function (id) {
+		document.getElementById(id).addEventListener('change', function () { updateModelOptionSelects(); });
+	});
+	document.getElementById('mf-id').addEventListener('input', function () { applyModelTemplateIfKnown(false); });
 
 	document.getElementById('mf-save').addEventListener('click', function () {
 		var id = document.getElementById('mf-id').value.trim();
@@ -466,6 +588,9 @@
 		var maxOut = parseInt(document.getElementById('mf-maxOutputTokens').value, 10);
 		var temp = parseFloat(document.getElementById('mf-temperature').value);
 		var topP = parseFloat(document.getElementById('mf-topP').value);
+		var supportedApiModes = checkedValues('mf-supportedApiModes');
+		var reasoningEfforts = checkedValues('mf-reasoningEfforts');
+		var verbosityOptions = checkedValues('mf-verbosityOptions');
 		if (!id) { alert(strings.modelsIdRequired); return; }
 		if (!name) { alert(strings.modelsNameRequired); return; }
 		if (!providerId) { alert(strings.modelsProviderRequired); return; }
@@ -484,6 +609,11 @@
 			thinking: document.getElementById('mf-thinking').value === 'true',
 			requiresThinkingParam: document.getElementById('mf-requiresThinkingParam').value === 'true',
 		};
+		if (supportedApiModes.length) model.supportedApiModes = supportedApiModes;
+		if (reasoningEfforts.length) model.reasoningEfforts = reasoningEfforts;
+		if (reasoningEfforts.indexOf(document.getElementById('mf-defaultReasoningEffort').value) >= 0) model.defaultReasoningEffort = document.getElementById('mf-defaultReasoningEffort').value;
+		if (verbosityOptions.length) model.verbosityOptions = verbosityOptions;
+		if (verbosityOptions.indexOf(document.getElementById('mf-defaultVerbosity').value) >= 0) model.defaultVerbosity = document.getElementById('mf-defaultVerbosity').value;
 		if (!isNaN(temp) && temp >= 0) model.temperature = temp;
 		if (!isNaN(topP) && topP >= 0) model.topP = topP;
 		post({

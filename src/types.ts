@@ -138,6 +138,8 @@ export interface DeepSeekRequest {
 }
 
 export type ProviderApiMode = 'chat-completions' | 'responses';
+export type ReasoningEffortOption = 'none' | 'low' | 'medium' | 'high' | 'max' | 'xhigh' | 'on' | 'off';
+export type ResponsesVerbosityOption = 'low' | 'medium' | 'high';
 
 export interface DeepSeekStreamChunk {
 	id: string;
@@ -176,10 +178,18 @@ export interface DeepSeekStreamChunk {
 export interface StreamCallbacks {
 	onContent: (content: string) => void;
 	onThinking: (text: string) => void;
+	onToolDelta?: (text: string) => void;
 	onToolCall: (toolCall: DeepSeekToolCall) => void;
 	onError: (error: Error) => void;
 	onDone: () => void;
 	onResponseId?: (responseId: string) => void;
+	onConnectionStatus?: (status: {
+		state: 'reset' | 'error' | 'clear';
+		attempt?: number;
+		maxAttempts?: number;
+		startedAt?: number;
+		message?: string;
+	}) => void;
 	onUsage?: (usage: {
 		prompt_tokens: number;
 		completion_tokens: number;
@@ -224,6 +234,16 @@ export interface ModelDefinition {
 	topP?: number;
 	/** Whether this model appears in the chat model picker. Defaults to true. */
 	isUserSelectable?: boolean;
+	/** API protocol styles this model can use. Defaults to the linked provider mode. */
+	supportedApiModes?: ProviderApiMode[];
+	/** Reasoning effort values shown in the model picker. */
+	reasoningEfforts?: ReasoningEffortOption[];
+	/** Default reasoning effort used when the picker has no explicit value. */
+	defaultReasoningEffort?: ReasoningEffortOption;
+	/** Responses verbosity values shown in the model picker. */
+	verbosityOptions?: ResponsesVerbosityOption[];
+	/** Default Responses verbosity used when the picker has no explicit value. */
+	defaultVerbosity?: ResponsesVerbosityOption;
 }
 
 /** A configured API provider (DeepSeek, MiMo, or any OpenAI-compatible endpoint). */
@@ -266,4 +286,14 @@ export interface UserModelConfig {
 	temperature?: number;
 	/** Top-P override (0-1). */
 	topP?: number;
+	/** API protocol styles this model can use. Defaults to the linked provider mode. */
+	supportedApiModes?: ProviderApiMode[];
+	/** Reasoning effort values shown in the model picker. */
+	reasoningEfforts?: ReasoningEffortOption[];
+	/** Default reasoning effort used when the picker has no explicit value. */
+	defaultReasoningEffort?: ReasoningEffortOption;
+	/** Responses verbosity values shown in the model picker. */
+	verbosityOptions?: ResponsesVerbosityOption[];
+	/** Default Responses verbosity used when the picker has no explicit value. */
+	defaultVerbosity?: ResponsesVerbosityOption;
 }

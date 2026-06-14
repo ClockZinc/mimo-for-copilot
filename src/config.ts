@@ -1,6 +1,6 @@
 import vscode from 'vscode';
-import { CONFIG_SECTION, DEFAULT_PROVIDERS, getBaseModelId } from './consts';
-import type { ProviderDefinition, UserModelConfig } from './types';
+import { CONFIG_SECTION, DEFAULT_PROVIDERS, MODELS, getBaseModelId } from './consts';
+import type { ProviderApiMode, ProviderDefinition, UserModelConfig } from './types';
 
 export function getUserModelKey(model: Pick<UserModelConfig, 'id' | 'key'>): string {
 	return model.key?.trim() || model.id;
@@ -50,9 +50,26 @@ const MODEL_PROVIDER_COMPATIBILITY: Record<string, string[]> = {
 	'mimo-v2.5': ['mimo', 'mimo-tp'],
 	'mimo-v2-pro': ['mimo', 'mimo-tp'],
 	'mimo-v2-flash': ['mimo'],
-	'gpt-5.4': ['openai-responses'],
-	'gpt-5.5': ['openai-responses'],
 };
+
+export function getProviderApiMode(provider: Pick<ProviderDefinition, 'apiMode'> | undefined): ProviderApiMode {
+	return provider?.apiMode === 'responses' ? 'responses' : 'chat-completions';
+}
+
+export function getModelSupportedApiModes(modelId: string | undefined): ProviderApiMode[] | undefined {
+	if (!modelId) {
+		return undefined;
+	}
+	const baseModelId = getBaseModelId(modelId);
+	const userModel = getUserModels().find((model) => {
+		const key = getUserModelKey(model);
+		return key === modelId || key === baseModelId || model.id === modelId || model.id === baseModelId;
+	});
+	const supportedApiModes = userModel?.supportedApiModes?.length
+		? userModel.supportedApiModes
+		: MODELS.find((model) => model.id === baseModelId)?.supportedApiModes;
+	return supportedApiModes?.filter((mode): mode is ProviderApiMode => mode === 'chat-completions' || mode === 'responses');
+}
 
 /**
  * Get DeepSeek API base URL from settings.
@@ -95,7 +112,7 @@ export function getToolOutputCompressionSettings(): ToolOutputCompressionSetting
 		compressImages: config.get<boolean>('responses.toolOutputCompression.compressImages', true),
 		truncateLongToolOutputs: config.get<boolean>('responses.toolOutputCompression.truncateLongToolOutputs', false),
 		summarizeStructuredOutputs: config.get<boolean>('responses.toolOutputCompression.summarizeStructuredOutputs', false),
-		useToolTypePolicies: config.get<boolean>('responses.toolOutputCompression.useToolTypePolicies', true),
+		useToolTypePolicies: config.get<boolean>('responses.toolOutputCompression.useToolTypePolicies', false),
 		showCompressionNotice: config.get<boolean>('responses.toolOutputCompression.showNotice', false),
 		maxToolOutputChars: getNumberSetting(
 			config,
@@ -151,6 +168,26 @@ export function getToolOutputCompressionSettings(): ToolOutputCompressionSetting
 	};
 }
 
+export function getResponsesExpandedLogging(): boolean {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	return config.get<boolean>('responses.log.expanded', false);
+}
+
+export function getWaitingForResponseThresholdSeconds(): number {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	return getNumberSetting(config, 'responses.waitingForResponseThresholdSeconds', 15, 1, 300);
+}
+
+export function getResponsesNoFeedbackReconnectSeconds(): number {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	return getNumberSetting(config, 'responses.noFeedbackReconnectSeconds', 30, 5, 600);
+}
+
+export function getResponsesMaxNoFeedbackReconnectAttempts(): number {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	return getNumberSetting(config, 'responses.maxNoFeedbackReconnectAttempts', 3, 1, 10);
+}
+
 // ---- Multi-provider management ----
 
 /**
@@ -197,6 +234,11 @@ export function isProviderSupportedForModel(modelId: string | undefined, provide
 		return true;
 	}
 	const supportedProviders = MODEL_PROVIDER_COMPATIBILITY[getBaseModelId(modelId)];
+	const supportedApiModes = getModelSupportedApiModes(modelId);
+	if (supportedApiModes?.length) {
+		const provider = getProviderById(providerId);
+		return !!provider && supportedApiModes.includes(getProviderApiMode(provider));
+	}
 	return !supportedProviders || supportedProviders.includes(providerId);
 }
 

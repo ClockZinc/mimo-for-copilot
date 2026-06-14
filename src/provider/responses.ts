@@ -1,22 +1,23 @@
-import vscode from 'vscode';
-import type { CancellationToken } from 'vscode';
 import type sharp from 'sharp';
-import { getApiModelId, getToolOutputCompressionSettings } from '../config';
+import type { CancellationToken } from 'vscode';
+import vscode from 'vscode';
 import type { ToolImageOutputFormat, ToolOutputCompressionSettings } from '../config';
+import { getApiModelId, getResponsesExpandedLogging, getResponsesMaxNoFeedbackReconnectAttempts, getResponsesNoFeedbackReconnectSeconds, getToolOutputCompressionSettings } from '../config';
 import { getBaseModelId } from '../consts';
 import { t } from '../i18n';
 import { logger } from '../logger';
-import { updateStatusBarFromUsage } from '../statusBar';
+import { recordOutputTokenText, setOutputTokenRateConnectionStatus, startOutputTokenRate, stopOutputTokenRate, updateStatusBarFromUsage } from '../statusBar';
 import type {
-	DeepSeekToolCall,
-	ModelDefinition,
-	ResponsesFunctionCallItem,
-	ResponsesInputItem,
-	ResponsesMessageContentPart,
-	ResponsesRequest,
-	ResponsesTool,
-	StreamCallbacks,
-	UserModelConfig,
+    DeepSeekToolCall,
+    ModelDefinition,
+    ResponsesFunctionCallItem,
+    ResponsesInputItem,
+    ResponsesMessageContentPart,
+    ResponsesRequest,
+    ResponsesTool,
+    ResponsesVerbosityOption,
+    StreamCallbacks,
+    UserModelConfig
 } from '../types';
 import { AUTOPILOT_COMPAT_PROMPT } from './convert';
 
@@ -61,9 +62,14 @@ type ResponsesStreamState = {
 	reasoningEventCount: number;
 	textEventCount: number;
 	toolEventCount: number;
+	receivedCompletedEvent: boolean;
 	unknownEventTypes: Set<string>;
 	usedNonStreamFallback: boolean;
+	activeDeltaLog: 'reasoning' | 'text' | 'tool' | null;
+	emittedInvisibleCompletionSentinel: boolean;
 };
+
+const INVISIBLE_COMPLETION_SENTINEL = '\u2060';
 
 type ResponsesStatefulMarkerLocation = {
 	marker: string;
@@ -139,9 +145,19 @@ type ResponsesMessagesConversion = {
 const RESPONSES_STATEFUL_MARKER_MIME = 'application/vnd.mimo-copilot.responses-stateful-marker';
 const INCLUDE_RESPONSES_REASONING_IN_REQUEST = false;
 const LOG_RESPONSE_BODY_MAX = 1200;
+const LOG_RESPONSE_BODY_EXPANDED_MAX = 20000;
+const LOG_REQUEST_BODY_EXPANDED_MAX = 60000;
 const DEFAULT_MAX_TOOL_OUTPUT_CHARS = 8000;
 const TRANSIENT_NOTICE_PREFIX = '\u2063MiMo 提示：';
 let sharpModulePromise: Promise<SharpModule | undefined> | undefined;
+
+function getLogResponseBodyMax(): number {
+	return getResponsesExpandedLogging() ? LOG_RESPONSE_BODY_EXPANDED_MAX : LOG_RESPONSE_BODY_MAX;
+}
+
+function getLogRequestBodyMax(): number {
+	return getResponsesExpandedLogging() ? LOG_REQUEST_BODY_EXPANDED_MAX : LOG_RESPONSE_BODY_MAX;
+}
 
 async function getSharpModule(): Promise<SharpModule | undefined> {
 	sharpModulePromise ??= import('sharp')
@@ -322,7 +338,7 @@ function generateResponsesItemId(prefix: string): string {
 	return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function previewJson(value: unknown, maxLength = LOG_RESPONSE_BODY_MAX): string {
+function previewJson(value: unknown, maxLength = getLogResponseBodyMax()): string {
 	try {
 		const json = JSON.stringify(value);
 		return json.length > maxLength ? `${json.slice(0, maxLength)}…` : json;
@@ -753,31 +769,79 @@ class ResponsesHttpError extends Error {
 	}
 }
 
-export function buildResponsesConfigurationSchema(modelId: string): ResponsesConfigurationSchema {
-	const isLitePreset = modelId === 'gpt-5.5';
+const RESPONSE_REASONING_EFFORTS: ResponsesReasoningEffort[] = ['none', 'low', 'medium', 'high', 'xhigh'];
+const RESPONSE_VERBOSITY_OPTIONS: ResponsesVerbosity[] = ['low', 'medium', 'high'];
+
+function normalizeResponsesReasoningOption(value: string | undefined): ResponsesReasoningEffort | undefined {
+	if (value === 'max') {
+		return 'high';
+	}
+	return RESPONSE_REASONING_EFFORTS.includes(value as ResponsesReasoningEffort)
+		? value as ResponsesReasoningEffort
+		: undefined;
+}
+
+function getResponseReasoningOptions(modelId: string, model?: Pick<ModelDefinition | UserModelConfig, 'reasoningEfforts'>): ResponsesReasoningEffort[] {
+	const configured = model?.reasoningEfforts
+		?.map((value) => normalizeResponsesReasoningOption(value))
+		.filter((value): value is ResponsesReasoningEffort => !!value);
+	if (configured?.length) {
+		return [...new Set(configured)];
+	}
+	return modelId === 'gpt-5.5' || modelId === 'gpt-5.4'
+		? RESPONSE_REASONING_EFFORTS
+		: ['none', 'low', 'medium', 'high', 'xhigh'];
+}
+
+function getResponseDefaultReasoningEffort(
+	modelId: string,
+	model: Pick<ModelDefinition | UserModelConfig, 'defaultReasoningEffort' | 'reasoningEfforts'> | undefined,
+): ResponsesReasoningEffort {
+	const options = getResponseReasoningOptions(modelId, model);
+	const configured = normalizeResponsesReasoningOption(model?.defaultReasoningEffort);
+	const fallback = modelId === 'gpt-5.5' ? 'medium' : 'none';
+	return configured && options.includes(configured) ? configured : options.includes(fallback) ? fallback : options[0] ?? 'none';
+}
+
+function getResponseVerbosityOptions(model?: Pick<ModelDefinition | UserModelConfig, 'verbosityOptions'>): ResponsesVerbosity[] {
+	const configured = model?.verbosityOptions
+		?.filter((value): value is ResponsesVerbosityOption => value === 'low' || value === 'medium' || value === 'high');
+	return configured?.length ? [...new Set(configured)] : RESPONSE_VERBOSITY_OPTIONS;
+}
+
+function getResponseDefaultVerbosity(
+	modelId: string,
+	model: Pick<ModelDefinition | UserModelConfig, 'defaultVerbosity' | 'verbosityOptions'> | undefined,
+): ResponsesVerbosity {
+	const options = getResponseVerbosityOptions(model);
+	const configured = model?.defaultVerbosity;
+	const fallback = modelId === 'gpt-5.5' ? 'medium' : 'high';
+	return configured && options.includes(configured) ? configured : options.includes(fallback) ? fallback : options[0] ?? 'high';
+}
+
+export function buildResponsesConfigurationSchema(
+	modelId: string,
+	model?: Pick<ModelDefinition | UserModelConfig, 'reasoningEfforts' | 'defaultReasoningEffort' | 'verbosityOptions' | 'defaultVerbosity'>,
+): ResponsesConfigurationSchema {
+	const reasoningEfforts = getResponseReasoningOptions(modelId, model);
+	const verbosityOptions = getResponseVerbosityOptions(model);
 	return {
 		properties: {
 			reasoningEffort: {
 				type: 'string',
 				title: t('status.thinking'),
-				enum: ['none', 'low', 'medium', 'high', 'xhigh'],
-				enumItemLabels: [t('thinking.none'), t('thinking.low'), t('thinking.medium'), t('thinking.high'), t('thinking.xhigh')],
-				enumDescriptions: [
-					t('thinking.none.desc'),
-					t('thinking.low.desc'),
-					t('thinking.medium.desc'),
-					t('thinking.high.desc'),
-					t('thinking.xhigh.desc'),
-				],
-				default: isLitePreset ? 'medium' : 'none',
+				enum: reasoningEfforts,
+				enumItemLabels: reasoningEfforts.map((effort) => t(`thinking.${effort}`)),
+				enumDescriptions: reasoningEfforts.map((effort) => t(`thinking.${effort}.desc`)),
+				default: getResponseDefaultReasoningEffort(modelId, model),
 				group: 'navigation',
 			},
 			verbosity: {
 				type: 'string',
 				title: t('responses.verbosity.title'),
-				enum: ['low', 'medium', 'high'],
-				enumItemLabels: [t('responses.verbosity.low'), t('responses.verbosity.medium'), t('responses.verbosity.high')],
-				default: isLitePreset ? 'medium' : 'high',
+				enum: verbosityOptions,
+				enumItemLabels: verbosityOptions.map((verbosity) => t(`responses.verbosity.${verbosity}`)),
+				default: getResponseDefaultVerbosity(modelId, model),
 				group: 'navigation',
 			},
 		},
@@ -787,28 +851,33 @@ export function buildResponsesConfigurationSchema(modelId: string): ResponsesCon
 export function getConfiguredResponsesVerbosity(
 	options: ResponsesModelConfigurationOptions,
 	modelId: string,
+	model?: Pick<ModelDefinition | UserModelConfig, 'defaultVerbosity' | 'verbosityOptions'>,
 ): ResponsesVerbosity | undefined {
 	const configuredVerbosity = options.modelConfiguration?.verbosity ?? options.configuration?.verbosity;
-	if (configuredVerbosity === 'low' || configuredVerbosity === 'medium' || configuredVerbosity === 'high') {
+	const verbosityOptions = getResponseVerbosityOptions(model);
+	if ((configuredVerbosity === 'low' || configuredVerbosity === 'medium' || configuredVerbosity === 'high') && verbosityOptions.includes(configuredVerbosity)) {
 		return configuredVerbosity;
 	}
-	return modelId === 'gpt-5.5' ? 'medium' : undefined;
+	return getResponseDefaultVerbosity(modelId, model);
 }
 
 export function normalizeResponsesEffort(
 	modelId: string,
 	effort: string | undefined,
+	model?: Pick<ModelDefinition | UserModelConfig, 'defaultReasoningEffort' | 'reasoningEfforts'>,
 ): ResponsesReasoningEffort {
+	const options = getResponseReasoningOptions(modelId, model);
 	if (effort === 'on' || effort === 'off') {
-		return effort === 'off' ? 'none' : 'medium';
+		const normalized = effort === 'off' ? 'none' : 'medium';
+		return options.includes(normalized) ? normalized : getResponseDefaultReasoningEffort(modelId, model);
 	}
 	if (effort === 'max') {
-		return 'high';
+		return options.includes('high') ? 'high' : getResponseDefaultReasoningEffort(modelId, model);
 	}
-	if (effort === 'none' || effort === 'low' || effort === 'medium' || effort === 'high' || effort === 'xhigh') {
+	if ((effort === 'none' || effort === 'low' || effort === 'medium' || effort === 'high' || effort === 'xhigh') && options.includes(effort)) {
 		return effort;
 	}
-	return modelId === 'gpt-5.5' ? 'medium' : 'none';
+	return getResponseDefaultReasoningEffort(modelId, model);
 }
 
 function getResponsesReasoningSummary(
@@ -870,19 +939,21 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 	const responsesVerbosity = getConfiguredResponsesVerbosity(
 		args.options as ResponsesModelConfigurationOptions,
 		resolvedModelId,
+		args.userModelDef ?? args.modelDef,
 	);
-	const normalizedEffort = normalizeResponsesEffort(resolvedModelId, args.thinkingEffort);
+	const normalizedEffort = normalizeResponsesEffort(resolvedModelId, args.thinkingEffort, args.userModelDef ?? args.modelDef);
 	const compressionSettings = resolveToolOutputCompressionSettings();
 	const client = new ResponsesClient(args.baseUrl, args.apiKey);
 	let currentThinkingId: string | null = null;
 
 	const reportThinkingChunk = (text: string) => {
 		if (!text) {
-			if (!currentThinkingId) {
+			const thinkingId = currentThinkingId;
+			if (!thinkingId) {
 				return;
 			}
 			args.progress.report(
-				new vscode.LanguageModelThinkingPart('', currentThinkingId) as unknown as vscode.LanguageModelResponsePart,
+				new vscode.LanguageModelThinkingPart('', thinkingId) as unknown as vscode.LanguageModelResponsePart,
 			);
 			currentThinkingId = null;
 			return;
@@ -891,9 +962,10 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 		if (!currentThinkingId) {
 			currentThinkingId = generateThinkingId();
 		}
+		const thinkingId = currentThinkingId;
 
 		args.progress.report(
-			new vscode.LanguageModelThinkingPart(text, currentThinkingId) as unknown as vscode.LanguageModelResponsePart,
+			new vscode.LanguageModelThinkingPart(text, thinkingId) as unknown as vscode.LanguageModelResponsePart,
 		);
 	};
 
@@ -930,15 +1002,22 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 		requestChars: number,
 		stats: ToolOutputCompressionStats,
 	): Promise<void> => {
+		const outputRateSessionId = startOutputTokenRate(4);
+		let finalCompletionTokens: number | undefined;
 		return new Promise<void>((resolve, reject) => {
 			client.stream(
 				request,
 				{
 					onContent: (content: string) => {
+						recordOutputTokenText(outputRateSessionId, content);
 						args.progress.report(new vscode.LanguageModelTextPart(content));
 					},
 					onThinking: (text: string) => {
+						recordOutputTokenText(outputRateSessionId, text);
 						reportThinkingChunk(text);
+					},
+					onToolDelta: (text: string) => {
+						recordOutputTokenText(outputRateSessionId, text);
 					},
 					onToolCall: (toolCall: DeepSeekToolCall) => {
 						try {
@@ -955,12 +1034,20 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 					onResponseId: (nextResponseId: string) => {
 						responseId = nextResponseId;
 					},
-					onError: reject,
+					onConnectionStatus: (status) => {
+						setOutputTokenRateConnectionStatus(outputRateSessionId, status);
+					},
+					onError: (error: Error) => {
+						stopOutputTokenRate(outputRateSessionId, finalCompletionTokens);
+						reject(error);
+					},
 					onDone: () => {
 						reportThinkingChunk('');
+						stopOutputTokenRate(outputRateSessionId, finalCompletionTokens);
 						resolve();
 					},
 					onUsage: (usage) => {
+						finalCompletionTokens = usage.completion_tokens;
 						let observedRatio = requestChars > 0 && usage.prompt_tokens > 0
 							? requestChars / usage.prompt_tokens
 							: undefined;
@@ -987,6 +1074,8 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 				},
 				args.token,
 			);
+		}).finally(() => {
+			stopOutputTokenRate(outputRateSessionId, finalCompletionTokens);
 		});
 	};
 
@@ -1282,6 +1371,40 @@ function countResponsesRequestChars(input: ResponsesInputItem[], instructions?: 
 	return total;
 }
 
+class ResponsesNoFeedbackTimeoutError extends Error {
+	constructor(timeoutMs: number) {
+		super(`Responses stream had no feedback for ${timeoutMs}ms`);
+		this.name = 'ResponsesNoFeedbackTimeoutError';
+	}
+}
+
+function withNoFeedbackTimeout<T>(
+	promise: Promise<T>,
+	controller: AbortController,
+	timeoutMs: number,
+): Promise<T> {
+	let timeout: NodeJS.Timeout | undefined;
+	const timeoutPromise = new Promise<never>((_resolve, reject) => {
+		timeout = setTimeout(() => {
+			controller.abort();
+			reject(new ResponsesNoFeedbackTimeoutError(timeoutMs));
+		}, timeoutMs);
+	});
+	return Promise.race([promise, timeoutPromise]).finally(() => {
+		if (timeout) {
+			clearTimeout(timeout);
+		}
+	});
+}
+
+function readSseChunkWithNoFeedbackTimeout(
+	reader: { read: () => Promise<{ done?: boolean; value?: Uint8Array }> },
+	controller: AbortController,
+	timeoutMs: number,
+): Promise<{ done?: boolean; value?: Uint8Array }> {
+	return withNoFeedbackTimeout(reader.read(), controller, timeoutMs);
+}
+
 class ResponsesClient {
 	constructor(
 		private readonly baseUrl: string,
@@ -1292,10 +1415,14 @@ class ResponsesClient {
 		request: ResponsesRequest,
 		callbacks: StreamCallbacks,
 		cancellationToken?: CancellationToken,
+		noFeedbackAttempt = 1,
 	): Promise<void> {
-		const controller = new AbortController();
+		let controller = new AbortController();
 		let emittedResponsePart = false;
 		let streamConnected = false;
+		let activeStreamState: ResponsesStreamState | undefined;
+		const noFeedbackReconnectMs = getResponsesNoFeedbackReconnectSeconds() * 1000;
+		const maxNoFeedbackAttempts = getResponsesMaxNoFeedbackReconnectAttempts();
 		const cancelListener = cancellationToken?.onCancellationRequested(() => {
 			controller.abort();
 		});
@@ -1308,22 +1435,30 @@ class ResponsesClient {
 				+ ` reasoning=${request.reasoning ? JSON.stringify(request.reasoning) : 'none'}`,
 			);
 			logger.debug(`[Responses] request.summary mode=stream ${previewJson(summarizeResponsesRequest(request))}`);
-			logger.debug(`[Responses] request.body mode=stream ${previewJson(sanitizeResponsesRequestForLog(request))}`);
+			logger.debug(`[Responses] request.body mode=stream ${previewJson(sanitizeResponsesRequestForLog(request), getLogRequestBodyMax())}`);
 
-			const response = await this.fetchWithRetry(request, controller.signal, 'stream');
+			const response = await withNoFeedbackTimeout(
+				this.fetchWithRetry(request, controller.signal, 'stream'),
+				controller,
+				noFeedbackReconnectMs,
+			);
 
 			if (!response.ok) {
 				const errorText = await response.text();
 				logger.warn(
 					`[Responses] stream.http_error status=${response.status}`
 					+ ` statusText=${response.statusText}`
-					+ ` body=${errorText.slice(0, LOG_RESPONSE_BODY_MAX)}`,
+					+ ` body=${errorText.slice(0, getLogResponseBodyMax())}`,
 				);
 				if (request.stream && shouldFallbackToNonStream(response.status, errorText)) {
 					logger.warn(
 						`[Responses] Streaming failed with ${response.status}; falling back to non-stream. ${errorText.slice(0, 200)}`,
 					);
-					await this.fetchWithoutStreaming({ ...request, stream: false }, callbacks, controller.signal);
+					const producedFallbackOutput = await this.fetchWithoutStreaming({ ...request, stream: false }, callbacks, controller.signal);
+					if (!producedFallbackOutput) {
+						const state = createEmptyResponsesStreamState(true);
+						emitInvisibleCompletionSentinelIfNeeded(state, callbacks, 'http_error_json_fallback_no_visible_output');
+					}
 					callbacks.onDone();
 					return;
 				}
@@ -1337,24 +1472,11 @@ class ResponsesClient {
 					`[Responses] Expected SSE but received ${contentType || 'unknown content type'}; using JSON fallback.`,
 				);
 				const responseJson = await response.json() as Record<string, unknown>;
-				const state: ResponsesStreamState = {
-					pendingToolCalls: new Map<number, DeepSeekToolCall>(),
-					emittedTextKeys: new Set<string>(),
-					emittedReasoningKeys: new Set<string>(),
-					emittedToolCallKeys: new Set<string>(),
-					currentThinkingId: null,
-					thinkingBuffer: '',
-					thinkingFlushTimer: null,
-					hasEmittedThinking: false,
-					hasEmittedAssistantText: false,
-					emittedBeginToolCallsHint: false,
-					reasoningEventCount: 0,
-					textEventCount: 0,
-					toolEventCount: 0,
-					unknownEventTypes: new Set<string>(),
-					usedNonStreamFallback: true,
-				};
-				this.emitJsonResponse(responseJson, callbacks);
+				const state = createEmptyResponsesStreamState(true);
+				const producedFallbackOutput = this.emitJsonResponse(responseJson, callbacks);
+				if (!producedFallbackOutput) {
+					emitInvisibleCompletionSentinelIfNeeded(state, callbacks, 'content_type_json_fallback_no_visible_output');
+				}
 				logResponsesSummary(state);
 				callbacks.onDone();
 				return;
@@ -1371,23 +1493,8 @@ class ResponsesClient {
 			const reader = response.body.getReader();
 			const decoder = new TextDecoder();
 			let buffer = '';
-			const state: ResponsesStreamState = {
-				pendingToolCalls: new Map<number, DeepSeekToolCall>(),
-				emittedTextKeys: new Set<string>(),
-				emittedReasoningKeys: new Set<string>(),
-				emittedToolCallKeys: new Set<string>(),
-				currentThinkingId: null,
-				thinkingBuffer: '',
-				thinkingFlushTimer: null,
-				hasEmittedThinking: false,
-				hasEmittedAssistantText: false,
-				emittedBeginToolCallsHint: false,
-				reasoningEventCount: 0,
-				textEventCount: 0,
-				toolEventCount: 0,
-				unknownEventTypes: new Set<string>(),
-				usedNonStreamFallback: false,
-			};
+			const state = createEmptyResponsesStreamState(false);
+			activeStreamState = state;
 
 			while (true) {
 				if (cancellationToken?.isCancellationRequested) {
@@ -1395,7 +1502,11 @@ class ResponsesClient {
 					break;
 				}
 
-				const { done, value } = await reader.read();
+				const { done, value } = await readSseChunkWithNoFeedbackTimeout(
+					reader,
+					controller,
+					noFeedbackReconnectMs,
+				);
 				if (done) {
 					break;
 				}
@@ -1411,10 +1522,13 @@ class ResponsesClient {
 					}
 
 					const data = trimmed.slice(5).trim();
+					callbacks.onConnectionStatus?.({ state: 'clear' });
 					if (data === '[DONE]') {
+						endResponsesDeltaLog(state);
 						logger.debug('[Responses] stream.done');
 						logResponsesSummary(state);
 						flushPendingToolCalls(state, callbacks);
+						emitInvisibleCompletionSentinelIfNeeded(state, callbacks, 'stream_done_no_visible_output');
 						callbacks.onDone();
 						return;
 					}
@@ -1431,6 +1545,7 @@ class ResponsesClient {
 				}
 			}
 
+			endResponsesDeltaLog(state);
 			reportEndThinking(state, callbacks);
 			logResponsesSummary(state);
 			flushPendingToolCalls(state, callbacks);
@@ -1438,7 +1553,11 @@ class ResponsesClient {
 				state.textEventCount > 0
 				|| state.toolEventCount > 0
 				|| state.reasoningEventCount > 0;
-			if (request.stream && !hasVisibleOutput) {
+			if (request.stream && !hasVisibleOutput && state.receivedCompletedEvent) {
+				logger.debug('[Responses] stream.completed no visible delta; skip non-stream fallback');
+				emitInvisibleCompletionSentinelIfNeeded(state, callbacks, 'completed_no_visible_output');
+			}
+			if (request.stream && !hasVisibleOutput && !state.receivedCompletedEvent) {
 				logger.debug('[Responses] fallback.nonstream reason=empty_stream_response');
 				logger.warn('[Responses] Stream ended without visible output; retrying without streaming.');
 				let producedFallbackOutput = false;
@@ -1464,14 +1583,54 @@ class ResponsesClient {
 					controller.signal,
 				);
 				if (!producedFallbackOutput) {
-					logger.warn('[Responses] JSON fallback also returned no visible output; emitting done sentinel.');
-					callbacks.onContent('done');
+					logger.warn('[Responses] JSON fallback also returned no visible output; emitting invisible completion sentinel.');
+					emitInvisibleCompletionSentinelIfNeeded(state, callbacks, 'json_fallback_no_visible_output');
 				}
 				callbacks.onDone();
 				return;
 			}
 			callbacks.onDone();
 		} catch (error) {
+			if (error instanceof ResponsesNoFeedbackTimeoutError) {
+				if (activeStreamState && hasResponsesStreamProgress(activeStreamState)) {
+					logger.warn(
+						`[Responses] stream.no_feedback.partial timeoutMs=${noFeedbackReconnectMs}; finalizing current stream without replay`,
+					);
+					endResponsesDeltaLog(activeStreamState);
+					reportEndThinking(activeStreamState, callbacks);
+					flushPendingToolCalls(activeStreamState, callbacks);
+					emitInvisibleCompletionSentinelIfNeeded(activeStreamState, callbacks, 'partial_no_feedback_finalized');
+					callbacks.onConnectionStatus?.({ state: 'clear' });
+					callbacks.onDone();
+					return;
+				}
+				if (noFeedbackAttempt < maxNoFeedbackAttempts) {
+					const nextAttempt = noFeedbackAttempt + 1;
+					logger.warn(
+						`[Responses] stream.no_feedback timeoutMs=${noFeedbackReconnectMs}`
+						+ ` reconnect=${nextAttempt}/${maxNoFeedbackAttempts}`,
+					);
+					callbacks.onConnectionStatus?.({
+						state: 'reset',
+						attempt: noFeedbackAttempt,
+						maxAttempts: maxNoFeedbackAttempts,
+						startedAt: Date.now(),
+						message: 'no feedback',
+					});
+					await this.stream(request, callbacks, cancellationToken, nextAttempt);
+					return;
+				}
+				logger.error(`[Responses] stream.no_feedback.failed attempts=${maxNoFeedbackAttempts}`);
+				callbacks.onConnectionStatus?.({
+					state: 'error',
+					attempt: noFeedbackAttempt,
+					maxAttempts: maxNoFeedbackAttempts,
+					message: 'no feedback',
+				});
+				callbacks.onError(new Error('Responses stream connection error: no feedback for 30s'));
+				return;
+			}
+
 			if (error instanceof Error && error.name === 'AbortError') {
 				reportEndThinking(undefined, callbacks);
 				callbacks.onDone();
@@ -1492,7 +1651,11 @@ class ResponsesClient {
 						`[Responses] fallback.nonstream reason=${(!emittedResponsePart && !streamConnected) ? 'no_stream_events' : 'stream_read_error'}`,
 					);
 					logger.warn('[Responses] Streaming failed; retrying without streaming.', error);
-					await this.fetchWithoutStreaming({ ...request, stream: false }, callbacks, controller.signal);
+					const producedFallbackOutput = await this.fetchWithoutStreaming({ ...request, stream: false }, callbacks, controller.signal);
+					if (!producedFallbackOutput) {
+						const state = createEmptyResponsesStreamState(true);
+						emitInvisibleCompletionSentinelIfNeeded(state, callbacks, 'stream_error_json_fallback_no_visible_output');
+					}
 					callbacks.onDone();
 					return;
 				} catch (fallbackError) {
@@ -1511,14 +1674,14 @@ class ResponsesClient {
 		request: ResponsesRequest,
 		callbacks: StreamCallbacks,
 		signal: AbortSignal,
-	): Promise<void> {
+	): Promise<boolean> {
 		logger.debug(
 			`[Responses] json.start url=${this.baseUrl}/responses`
 			+ ` model=${request.model} inputItems=${request.input.length}`
 				+ ` previousResponseId=${request.previous_response_id ? 'yes' : 'no'}`,
 		);
 		logger.debug(`[Responses] request.summary mode=json ${previewJson(summarizeResponsesRequest(request))}`);
-		logger.debug(`[Responses] request.body mode=json ${previewJson(sanitizeResponsesRequestForLog(request))}`);
+		logger.debug(`[Responses] request.body mode=json ${previewJson(sanitizeResponsesRequestForLog(request), getLogRequestBodyMax())}`);
 
 		const response = await this.fetchWithRetry(request, signal, 'json');
 
@@ -1527,13 +1690,13 @@ class ResponsesClient {
 			logger.warn(
 				`[Responses] json.http_error status=${response.status}`
 				+ ` statusText=${response.statusText}`
-				+ ` body=${errorText.slice(0, LOG_RESPONSE_BODY_MAX)}`,
+				+ ` body=${errorText.slice(0, getLogResponseBodyMax())}`,
 			);
 			throw new ResponsesHttpError(response.status, errorText);
 		}
 
 		const responseJson = await response.json() as Record<string, unknown>;
-		this.emitJsonResponse(responseJson, callbacks);
+		return this.emitJsonResponse(responseJson, callbacks);
 	}
 
 	private async fetchWithRetry(
@@ -1582,9 +1745,10 @@ class ResponsesClient {
 	private emitJsonResponse(
 		responseJson: Record<string, unknown>,
 		callbacks: StreamCallbacks,
-	): void {
+	): boolean {
 		const responseId = typeof responseJson.id === 'string' ? responseJson.id : undefined;
 		let hasOpenThinking = false;
+		let emittedOutput = false;
 		logger.debug(
 			`[Responses] json.response id=${responseId ?? 'n/a'} status=${String(responseJson.status ?? 'unknown')}`,
 		);
@@ -1604,6 +1768,7 @@ class ResponsesClient {
 						`[Responses] json.reasoning type=top-level.summary len=${text.length} preview=${previewText(text)}`,
 					);
 					hasOpenThinking = true;
+					emittedOutput = true;
 					callbacks.onThinking(text);
 				}
 			}
@@ -1632,6 +1797,7 @@ class ResponsesClient {
 						logger.debug(
 							`[Responses] json.text type=${partType} len=${text.length} preview=${previewText(text)}`,
 						);
+						emittedOutput = true;
 						callbacks.onContent(text);
 						continue;
 					}
@@ -1640,6 +1806,7 @@ class ResponsesClient {
 							`[Responses] json.reasoning type=${partType} len=${text.length} preview=${previewText(text)}`,
 						);
 						hasOpenThinking = true;
+						emittedOutput = true;
 						callbacks.onThinking(text);
 					}
 				}
@@ -1657,6 +1824,7 @@ class ResponsesClient {
 							`[Responses] json.reasoning type=reasoning.summary len=${text.length} preview=${previewText(text)}`,
 						);
 						hasOpenThinking = true;
+						emittedOutput = true;
 						callbacks.onThinking(text);
 					}
 				}
@@ -1676,6 +1844,7 @@ class ResponsesClient {
 				const name = typeof item.name === 'string' ? item.name : '';
 				const args = typeof item.arguments === 'string' ? item.arguments : '{}';
 				logger.debug(`[Responses] json.tool name=${name || 'unknown'} callId=${callId}`);
+				emittedOutput = true;
 				callbacks.onToolCall({
 					id: callId,
 					type: 'function',
@@ -1706,6 +1875,8 @@ class ResponsesClient {
 		if (responseError && typeof responseError.message === 'string') {
 			throw new Error(responseError.message);
 		}
+
+		return emittedOutput;
 	}
 
 	private handleEvent(
@@ -1741,6 +1912,7 @@ class ResponsesClient {
 				const key = buildEventKey(event, 'item');
 				state.emittedTextKeys.add(key);
 				state.hasEmittedAssistantText = true;
+				appendResponsesDeltaLog(state, 'text', delta);
 				callbacks.onContent(delta);
 				return;
 			}
@@ -1756,6 +1928,7 @@ class ResponsesClient {
 					reportEndThinking(state, callbacks);
 					state.emittedTextKeys.add(key);
 					state.hasEmittedAssistantText = true;
+					appendResponsesDeltaLog(state, 'text', text);
 					callbacks.onContent(text);
 				}
 				return;
@@ -1774,6 +1947,7 @@ class ResponsesClient {
 				}
 				state.reasoningEventCount += 1;
 				state.emittedReasoningKeys.add(buildEventKey(event, 'reasoning'));
+				appendResponsesDeltaLog(state, 'reasoning', delta);
 				bufferThinkingContent(delta, state, callbacks);
 				return;
 			}
@@ -1790,6 +1964,7 @@ class ResponsesClient {
 				if (text && !looksLikeReasoningConfigValue(text) && !state.emittedReasoningKeys.has(key)) {
 					state.reasoningEventCount += 1;
 					state.emittedReasoningKeys.add(key);
+					appendResponsesDeltaLog(state, 'reasoning', text);
 					bufferThinkingContent(text, state, callbacks);
 				}
 				reportEndThinking(state, callbacks);
@@ -1797,6 +1972,7 @@ class ResponsesClient {
 			}
 			case 'response.function_call_arguments.delta':
 			case 'response.function_call_arguments.done': {
+				endResponsesDeltaLog(state);
 				reportEndThinking(state, callbacks);
 				if (!state.emittedBeginToolCallsHint && state.hasEmittedAssistantText) {
 					callbacks.onContent(' ');
@@ -1818,6 +1994,10 @@ class ResponsesClient {
 					: coerceText(event.arguments);
 				if (eventType === 'response.function_call_arguments.delta') {
 					pending.function.arguments += argsChunk;
+					if (argsChunk) {
+						appendResponsesDeltaLog(state, 'tool', argsChunk);
+						callbacks.onToolDelta?.(argsChunk);
+					}
 				} else if (argsChunk) {
 					pending.function.arguments = argsChunk;
 				}
@@ -1828,12 +2008,12 @@ class ResponsesClient {
 						+ ` name=${pending.function.name || '(pending)'}`
 						+ ` argsChars=${pending.function.arguments.length}`,
 					);
-					flushPendingToolCall(outputIndex, state, callbacks);
 				}
 				return;
 			}
 			case 'response.output_item.added':
 			case 'response.output_item.done': {
+				endResponsesDeltaLog(state);
 				const item = event.item as ResponsesFunctionCallItem | undefined;
 				if (!item || item.type !== 'function_call') {
 					return;
@@ -1841,6 +2021,10 @@ class ResponsesClient {
 				logger.debug(`[Responses] tool.output_item name=${item.name} callId=${item.call_id}`);
 				state.toolEventCount += 1;
 				reportEndThinking(state, callbacks);
+				if (eventType === 'response.output_item.added' && item.name) {
+					appendResponsesDeltaLog(state, 'tool', item.name);
+					callbacks.onToolDelta?.(item.name);
+				}
 				if (!state.emittedBeginToolCallsHint && state.hasEmittedAssistantText) {
 					callbacks.onContent(' ');
 					state.emittedBeginToolCallsHint = true;
@@ -1854,14 +2038,36 @@ class ResponsesClient {
 						arguments: item.arguments,
 					},
 				});
-				if (eventType === 'response.output_item.done') {
-					flushPendingToolCall(outputIndex, state, callbacks);
-				}
 				return;
 			}
 			case 'response.completed':
 			case 'response.done': {
+				endResponsesDeltaLog(state);
 				logger.debug(`[Responses] event type=${eventType}`);
+				const hadVisibleOutput = state.textEventCount > 0
+					|| state.reasoningEventCount > 0
+					|| state.toolEventCount > 0;
+				state.receivedCompletedEvent = true;
+				const responseObject = event.response as Record<string, unknown> | undefined;
+				if (responseObject && !hadVisibleOutput) {
+					logCompletedResponseSummary(responseObject);
+					const emittedFromCompletedResponse = this.emitJsonResponse(responseObject, callbacks);
+					if (emittedFromCompletedResponse) {
+						const outputItems = Array.isArray(responseObject.output)
+							? responseObject.output as Array<Record<string, unknown>>
+							: [];
+						for (const item of outputItems) {
+							const itemType = typeof item.type === 'string' ? item.type : '';
+							if (itemType === 'message') {
+								state.textEventCount += 1;
+							} else if (itemType === 'reasoning') {
+								state.reasoningEventCount += 1;
+							} else if (itemType === 'function_call') {
+								state.toolEventCount += 1;
+							}
+						}
+					}
+				}
 				reportEndThinking(state, callbacks);
 				flushPendingToolCalls(state, callbacks);
 				reportUsageFromEvent(event, callbacks);
@@ -1896,9 +2102,152 @@ function logResponsesSummary(state: ResponsesStreamState): void {
 		`[Responses] summary reasoningEvents=${state.reasoningEventCount}`
 		+ ` textEvents=${state.textEventCount}`
 		+ ` toolEvents=${state.toolEventCount}`
+		+ ` completedEvent=${state.receivedCompletedEvent ? 'yes' : 'no'}`
 		+ ` usedNonStreamFallback=${state.usedNonStreamFallback ? 'yes' : 'no'}`
 		+ ` unknownEvents=${state.unknownEventTypes.size > 0 ? [...state.unknownEventTypes].join('|') : 'none'}`,
 	);
+}
+
+function createEmptyResponsesStreamState(usedNonStreamFallback: boolean): ResponsesStreamState {
+	return {
+		pendingToolCalls: new Map<number, DeepSeekToolCall>(),
+		emittedTextKeys: new Set<string>(),
+		emittedReasoningKeys: new Set<string>(),
+		emittedToolCallKeys: new Set<string>(),
+		currentThinkingId: null,
+		thinkingBuffer: '',
+		thinkingFlushTimer: null,
+		hasEmittedThinking: false,
+		hasEmittedAssistantText: false,
+		emittedBeginToolCallsHint: false,
+		reasoningEventCount: 0,
+		textEventCount: 0,
+		toolEventCount: 0,
+		receivedCompletedEvent: false,
+		unknownEventTypes: new Set<string>(),
+		usedNonStreamFallback,
+		activeDeltaLog: null,
+		emittedInvisibleCompletionSentinel: false,
+	};
+}
+
+function appendResponsesDeltaLog(
+	state: ResponsesStreamState,
+	kind: 'reasoning' | 'text' | 'tool',
+	delta: string,
+): void {
+	if (!delta) {
+		return;
+	}
+	if (state.activeDeltaLog !== kind) {
+		endResponsesDeltaLog(state);
+		logger.debugAppendStart(`[Responses] ${kind}.stream `);
+		state.activeDeltaLog = kind;
+	}
+	logger.append(delta);
+}
+
+function emitInvisibleCompletionSentinelIfNeeded(
+	state: ResponsesStreamState,
+	callbacks: StreamCallbacks,
+	reason: string,
+): void {
+	const hasVisibleOutput = state.textEventCount > 0
+		|| state.reasoningEventCount > 0
+		|| state.toolEventCount > 0;
+	if (hasVisibleOutput || state.emittedInvisibleCompletionSentinel) {
+		return;
+	}
+	state.emittedInvisibleCompletionSentinel = true;
+	logger.debug(`[Responses] sentinel.invisible reason=${reason}`);
+	callbacks.onContent(INVISIBLE_COMPLETION_SENTINEL);
+}
+
+function endResponsesDeltaLog(state: ResponsesStreamState): void {
+	if (!state.activeDeltaLog) {
+		return;
+	}
+	logger.endLine();
+	state.activeDeltaLog = null;
+}
+
+function logCompletedResponseSummary(responseObject: Record<string, unknown>): void {
+	const responseId = typeof responseObject.id === 'string' ? responseObject.id : 'n/a';
+	const status = String(responseObject.status ?? 'unknown');
+	const outputItems = Array.isArray(responseObject.output)
+		? responseObject.output as Array<Record<string, unknown>>
+		: [];
+	logger.debug(
+		`[Responses] completed.response id=${responseId}`
+		+ ` status=${status}`
+		+ ` outputItems=${outputItems.length}`,
+	);
+
+	for (let index = 0; index < outputItems.length; index++) {
+		const item = outputItems[index];
+		const itemType = typeof item.type === 'string' ? item.type : 'unknown';
+		if (itemType === 'message') {
+			const contentParts = Array.isArray(item.content)
+				? item.content as Array<Record<string, unknown>>
+				: [];
+			logger.debug(
+				`[Responses] completed.output item=${index}`
+				+ ` type=message contentParts=${contentParts.length}`,
+			);
+			for (let contentIndex = 0; contentIndex < contentParts.length; contentIndex++) {
+				const part = contentParts[contentIndex];
+				const partType = typeof part.type === 'string' ? part.type : 'unknown';
+				const text = coerceText(part.text ?? part.delta ?? part.content);
+				logger.debug(
+					`[Responses] completed.output.content item=${index}`
+					+ ` part=${contentIndex}`
+					+ ` type=${partType}`
+					+ ` textLen=${text.length}`
+					+ ` preview=${text ? previewText(text) : ''}`,
+				);
+			}
+			continue;
+		}
+
+		if (itemType === 'function_call') {
+			const callId = typeof item.call_id === 'string'
+				? item.call_id
+				: typeof item.id === 'string'
+					? item.id
+					: 'n/a';
+			const name = typeof item.name === 'string' ? item.name : 'unknown';
+			const args = typeof item.arguments === 'string' ? item.arguments : '';
+			logger.debug(
+				`[Responses] completed.output item=${index}`
+				+ ` type=function_call name=${name}`
+				+ ` callId=${callId}`
+				+ ` argsChars=${args.length}`,
+			);
+			continue;
+		}
+
+		if (itemType === 'reasoning') {
+			const summaries = Array.isArray(item.summary)
+				? item.summary as Array<Record<string, unknown>>
+				: [];
+			logger.debug(
+				`[Responses] completed.output item=${index}`
+				+ ` type=reasoning summaries=${summaries.length}`,
+			);
+			for (let summaryIndex = 0; summaryIndex < summaries.length; summaryIndex++) {
+				const text = coerceText(summaries[summaryIndex].text ?? summaries[summaryIndex]);
+				logger.debug(
+					`[Responses] completed.output.reasoning item=${index}`
+					+ ` summary=${summaryIndex}`
+					+ ` textLen=${text.length}`
+					+ ` preview=${text ? previewText(text) : ''}`,
+				);
+			}
+			continue;
+		}
+
+		logger.debug(`[Responses] completed.output item=${index} type=${itemType}`);
+	}
 }
 
 function summarizeUnknownEvent(event: Record<string, unknown>): Record<string, unknown> {
@@ -2032,6 +2381,15 @@ function flushPendingToolCalls(state: ResponsesStreamState, callbacks: StreamCal
 	for (const outputIndex of Array.from(state.pendingToolCalls.keys())) {
 		flushPendingToolCall(outputIndex, state, callbacks);
 	}
+}
+
+function hasResponsesStreamProgress(state: ResponsesStreamState): boolean {
+	return state.textEventCount > 0
+		|| state.reasoningEventCount > 0
+		|| state.toolEventCount > 0
+		|| state.pendingToolCalls.size > 0
+		|| state.hasEmittedAssistantText
+		|| state.hasEmittedThinking;
 }
 
 function generateThinkingId(): string {

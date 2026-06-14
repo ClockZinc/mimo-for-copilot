@@ -2,27 +2,28 @@ import vscode from 'vscode';
 import { AuthManager } from '../auth';
 import { DeepSeekClient } from '../client';
 import {
-	getApiModelId,
-	getMaxTokens,
-	getCandidateProvidersForModel,
-	getProviderById,
-	resolveProviderForModel,
-	getUserModelKey,
-	getUserModels,
-	getHiddenModels,
+    getApiModelId,
+    getCandidateProvidersForModel,
+    getHiddenModels,
+    getMaxTokens,
+    getProviderApiMode,
+    getProviderById,
+    getUserModelKey,
+    getUserModels,
+    resolveProviderForModel
 } from '../config';
 import { MODELS, getBaseModelId, getBuiltinModelByPickerId, getBuiltinModelKey } from '../consts';
 import { t } from '../i18n';
 import { logger } from '../logger';
-import type { DeepSeekToolCall, ModelDefinition } from '../types';
+import { recordOutputTokenText, startOutputTokenRate, stopOutputTokenRate, updateStatusBarFromUsage } from '../statusBar';
+import type { DeepSeekToolCall, ModelDefinition, ReasoningEffortOption, UserModelConfig } from '../types';
 import { type ReasoningEntry, pruneReasoningCache } from './cache';
 import { convertMessages, convertTools, countMessageChars } from './convert';
 import {
-	buildResponsesConfigurationSchema,
-	handleResponsesChatRequest,
+    buildResponsesConfigurationSchema,
+    handleResponsesChatRequest,
 } from './responses';
 import { createVisionModelGetter, resolveImageMessages, setVisionProxyModel } from './vision';
-import { updateStatusBarFromUsage } from '../statusBar';
 
 /**
  * NOTE: Non-public API surface.
@@ -39,6 +40,30 @@ import { updateStatusBarFromUsage } from '../statusBar';
  */
 
 type ThinkingEffort = 'none' | 'low' | 'medium' | 'high' | 'max' | 'xhigh' | 'on' | 'off' | undefined;
+
+type EffectiveModelConfig = Pick<
+	ModelDefinition | UserModelConfig,
+	| 'id'
+	| 'name'
+	| 'maxInputTokens'
+	| 'maxOutputTokens'
+	| 'providerId'
+	| 'enhancedVision'
+	| 'requiresThinkingParam'
+	| 'temperature'
+	| 'topP'
+	| 'supportedApiModes'
+	| 'reasoningEfforts'
+	| 'defaultReasoningEffort'
+	| 'verbosityOptions'
+	| 'defaultVerbosity'
+> & {
+	capabilities: { toolCalling: boolean; nativeVision: boolean; thinking: boolean };
+	thinkingParamStyle?: ModelDefinition['thinkingParamStyle'];
+	family?: string;
+	version?: string;
+	detail?: string;
+};
 
 /**
  * Non-public: Copilot Chat passes the user's per-model picker selections
@@ -253,6 +278,12 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		const responsesProvider = getProviderById('openai-responses');
 		const hasResponsesKey = !!providerKeyStatus.get('openai-responses');
 		const hasResponsesConfigured = !!responsesProvider?.baseUrl?.trim() && hasResponsesKey;
+		const hasAnyResponsesProvider = providers.some((provider) => {
+			const fullProvider = getProviderById(provider.id);
+			return !!fullProvider?.baseUrl?.trim()
+				&& getProviderApiMode(fullProvider) === 'responses'
+				&& !!providerKeyStatus.get(provider.id);
+		}) || hasResponsesConfigured;
 
 		function hasKeyForModel(modelId: string, providerId: string | undefined): boolean {
 			if (!providerId || providerId === 'default') {
@@ -274,33 +305,25 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			return fallbackCandidate ?? modelProviderId;
 		}
 
+		const userModels = getUserModels();
+		const getBuiltinOverride = (model: ModelDefinition): UserModelConfig | undefined => userModels.find((um) => {
+			const userKey = getUserModelKey(um);
+			const builtinKey = getBuiltinModelKey(model);
+			return userKey === builtinKey || userKey === model.id || um.id === model.id;
+		});
+
 		const builtinInfos = MODELS
 			.filter((model) => !hiddenModels.includes(model.id))
 			.filter((model) => model.family !== 'deepseek' || hasDeepSeekKey)
-			.filter((model) => model.family !== 'openai-responses' || hasResponsesConfigured)
-			.map((model) =>
-			toChatInfo(model, hasKeyForModel(model.id, model.providerId), getEffectiveProviderId(model.id, model.providerId)),
-		);
-
-		const userModels = getUserModels();
-
-		// Apply user overrides to built-in models (e.g. context window, provider)
-		const overriddenBuiltins = builtinInfos.map((info) => {
-			const builtinModelId = getBaseModelId(info.id);
-			const override = userModels.find((um) => {
-				const userKey = getUserModelKey(um);
-				return userKey === info.id || userKey === builtinModelId || um.id === builtinModelId;
+			.filter((model) => model.family !== 'openai-responses' || hasAnyResponsesProvider || !!getBuiltinOverride(model)?.providerId)
+			.map((model) => {
+				const effective = mergeModelOverride(model, getBuiltinOverride(model));
+				return toChatInfo(
+					effective,
+					hasKeyForModel(effective.id, effective.providerId),
+					getEffectiveProviderId(effective.id, effective.providerId),
+				);
 			});
-			if (!override) {
-				return info;
-			}
-			return {
-				...info,
-				name: override.name || info.name,
-				maxInputTokens: override.maxInputTokens || info.maxInputTokens,
-				maxOutputTokens: override.maxOutputTokens || info.maxOutputTokens,
-			};
-		});
 		const userInfos: ModelPickerChatInformation[] = userModels
 			.filter((m) => !hiddenModels.includes(m.key || m.id) && !MODELS.some((bm) => bm.id === (m.key || m.id)))
 			.filter((m) => m.providerId !== 'deepseek' || hasDeepSeekKey)
@@ -327,14 +350,14 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 					...(m.thinking && m.requiresThinkingParam
 						? {
 							configurationSchema: (providerApiMode === 'responses'
-								? buildResponsesConfigurationSchema(m.id)
-								: buildThinkingEffortSchema()) as ThinkingEffortConfigurationSchema,
+								? buildResponsesConfigurationSchema(m.id, m)
+								: buildThinkingEffortSchema(m)) as ThinkingEffortConfigurationSchema,
 						}
 						: {}),
 				};
 			});
 
-		return [...overriddenBuiltins, ...userInfos];
+		return [...builtinInfos, ...userInfos];
 	}
 
 	async provideLanguageModelChatResponse(
@@ -353,20 +376,19 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		});
 		const resolvedModelId = userModelDef?.id ?? modelDef?.id ?? baseModelId;
 		const configuredProviderId = userModelDef?.providerId ?? modelDef?.providerId;
-		const providerMode = configuredProviderId ? getProviderById(configuredProviderId)?.apiMode : undefined;
-		const isThinkingModel = modelDef?.capabilities.thinking ?? userModelDef?.thinking ?? false;
-		const isMiMo = modelDef?.thinkingParamStyle === 'mimo';
-		const isResponses = modelDef?.thinkingParamStyle === 'responses' || providerMode === 'responses';
-		const needsThinkingParam = modelDef?.requiresThinkingParam ?? userModelDef?.requiresThinkingParam ?? true;
+		const effectiveModel = modelDef ? mergeModelOverride(modelDef, userModelDef) : userModelToEffectiveModel(userModelDef);
+		const isThinkingModel = effectiveModel?.capabilities.thinking ?? false;
+		const isMiMo = effectiveModel?.thinkingParamStyle === 'mimo';
+		const needsThinkingParam = effectiveModel?.requiresThinkingParam ?? true;
 		const thinkingEffort = getConfiguredThinkingEffort(options as ModelConfigurationOptions);
 		const maxTokens = getMaxTokens();
 
 		// Vision: native vision skips proxy, enhancedVision uses Copilot proxy
 		// NOTE: 默认关闭 enhancedVision 以加快首字响应速度
-		const nativeVision = modelDef?.capabilities.nativeVision ?? userModelDef?.nativeVision ?? false;
-		const enhancedVision = modelDef?.enhancedVision ?? userModelDef?.enhancedVision ?? false;
-		const userTemp = userModelDef?.temperature ?? modelDef?.temperature;
-		const userTopP = userModelDef?.topP ?? modelDef?.topP;
+		const nativeVision = effectiveModel?.capabilities.nativeVision ?? false;
+		const enhancedVision = effectiveModel?.enhancedVision ?? false;
+		const userTemp = effectiveModel?.temperature;
+		const userTopP = effectiveModel?.topP;
 
 		// Resolve provider-specific settings (baseUrl + apiKey) with cascade
 		const modelProviderId = configuredProviderId;
@@ -384,6 +406,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		}
 		logger.debug(`[Request] providerKeyStatus: ${JSON.stringify(Object.fromEntries(providerKeyStatus))}`);
 		const { baseUrl, providerId } = resolveProviderForModel(modelProviderId, providerKeyStatus, resolvedModelId);
+		const isResponses = getProviderApiMode(getProviderById(providerId)) === 'responses';
 		logger.debug(`[Request] model=${modelInfo.id} rawModel=${resolvedModelId} inputProvider=${modelProviderId ?? '(none)'} → resolved provider=${providerId} baseUrl=${baseUrl}`);
 		const apiKey = await this.authManager.getApiKeyForProvider(providerId);
 		logger.debug(`[Request] apiKey found for provider=${providerId}: ${apiKey ? 'YES' : 'NO'}`);
@@ -444,7 +467,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			nativeVision,
 			isAutopilotLike,
 		);
-		const canUseTools = modelDef?.capabilities.toolCalling ?? userModelDef?.toolCalling ?? true;
+		const canUseTools = effectiveModel?.capabilities.toolCalling ?? true;
 		const tools = canUseTools ? convertTools(options.tools) : undefined;
 
 		const totalRequestChars = countMessageChars(deepseekMessages);
@@ -452,6 +475,8 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		let accumulatedReasoning = '';
 		const pendingToolCallIds: string[] = [];
 		let responseMessageId: string | undefined;
+		const outputRateSessionId = startOutputTokenRate(this.charsPerToken);
+		let finalCompletionTokens: number | undefined;
 
 		this.beginResponse();
 		return new Promise<void>((resolve, reject) => {
@@ -477,22 +502,26 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 				},
 				{
 					onContent: (content: string) => {
+						recordOutputTokenText(outputRateSessionId, content);
 						safeProgress.report(new vscode.LanguageModelTextPart(content));
 					},
 
 					onThinking: (text: string) => {
+						recordOutputTokenText(outputRateSessionId, text);
 						accumulatedReasoning += text;
 
-						// LanguageModelThinkingPart is a proposed API — the class
-						// exists at runtime in both stable and Insiders, but the
-						// stable vscode.d.ts doesn't include it. The .d.ts
-						// augmentation in the project root provides type safety.
+						// Reasoning/thinking belongs in VS Code's thinking/steps area,
+						// not in the normal assistant text stream.
 						safeProgress.report(
 							new vscode.LanguageModelThinkingPart(
 								text,
 							) as unknown as vscode.LanguageModelResponsePart,
 						);
 					},
+
+						onToolDelta: (text: string) => {
+							recordOutputTokenText(outputRateSessionId, text);
+						},
 
 					onToolCall: (toolCall: DeepSeekToolCall) => {
 						pendingToolCallIds.push(toolCall.id);
@@ -518,6 +547,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 					},
 
 					onError: (error: Error) => {
+						stopOutputTokenRate(outputRateSessionId, finalCompletionTokens);
 						reject(error);
 					},
 
@@ -532,10 +562,12 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 						}
 
 						pruneReasoningCache(this.reasoningCache, false);
+						stopOutputTokenRate(outputRateSessionId, finalCompletionTokens);
 						resolve();
 					},
 
 					onUsage: (usage) => {
+						finalCompletionTokens = usage.completion_tokens;
 						// Calibrate chars-per-token ratio from real API usage data.
 						if (totalRequestChars > 0 && usage.prompt_tokens > 0) {
 							const observedRatio = totalRequestChars / usage.prompt_tokens;
@@ -564,6 +596,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 				token,
 			);
 		}).finally(() => {
+			stopOutputTokenRate(outputRateSessionId, finalCompletionTokens);
 			this.endResponse();
 		});
 	}
@@ -597,20 +630,23 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
  * Build the thinking effort configuration schema with translated labels.
  * Called inside toChatInfo() so translations reflect the current locale.
  */
-function buildThinkingEffortSchema() {
+function buildThinkingEffortSchema(model?: Pick<ModelDefinition | UserModelConfig, 'reasoningEfforts' | 'defaultReasoningEffort'>) {
+	const configuredEfforts = model?.reasoningEfforts?.filter((effort): effort is Exclude<ReasoningEffortOption, 'on' | 'off'> =>
+		effort === 'none' || effort === 'low' || effort === 'medium' || effort === 'high' || effort === 'max' || effort === 'xhigh',
+	);
+	const efforts = configuredEfforts?.length ? [...new Set(configuredEfforts)] : ['none', 'high', 'max'];
+	const defaultEffort = model?.defaultReasoningEffort && efforts.includes(model.defaultReasoningEffort as Exclude<ReasoningEffortOption, 'on' | 'off'>)
+		? model.defaultReasoningEffort
+		: efforts.includes('high') ? 'high' : efforts[0];
 	return {
 		properties: {
 			reasoningEffort: {
 				type: 'string',
 				title: t('status.thinking'),
-				enum: ['none', 'high', 'max'],
-				enumItemLabels: [t('thinking.none'), t('thinking.high'), t('thinking.max')],
-				enumDescriptions: [
-					t('thinking.none.desc'),
-					t('thinking.high.desc'),
-					t('thinking.max.desc'),
-				],
-				default: 'high',
+				enum: efforts,
+				enumItemLabels: efforts.map((effort) => t(`thinking.${effort}`)),
+				enumDescriptions: efforts.map((effort) => t(`thinking.${effort}.desc`)),
+				default: defaultEffort,
 				group: 'navigation',
 			},
 		},
@@ -624,7 +660,7 @@ function buildThinkingEffortSchema() {
  * in English but not the active locale, the English translation is used
  * (per `t()`'s fallback behaviour).
  */
-function resolveDetailKey(m: ModelDefinition): string | undefined {
+function resolveDetailKey(m: Pick<ModelDefinition, 'id'>): string | undefined {
 	// Map known DeepSeek V4 models: deepseek-v4-flash → model.flash.detail
 	const suffix = m.id.startsWith('deepseek-v4-') ? m.id.slice('deepseek-v4-'.length) : m.id;
 	const key = `model.${suffix}.detail`;
@@ -634,17 +670,17 @@ function resolveDetailKey(m: ModelDefinition): string | undefined {
 	return translated !== key ? key : undefined;
 }
 
-function toChatInfo(m: ModelDefinition, hasApiKey: boolean, effectiveProviderId?: string): ModelPickerChatInformation {
+function toChatInfo(m: EffectiveModelConfig, hasApiKey: boolean, effectiveProviderId?: string): ModelPickerChatInformation {
 	const detailKey = resolveDetailKey(m);
-	const modelDetail = detailKey ? t(detailKey) : m.detail;
+	const modelDetail = detailKey ? t(detailKey) : m.detail ?? '';
 	const isMiMo = m.thinkingParamStyle === 'mimo';
-	const isResponses = m.thinkingParamStyle === 'responses';
+	const isResponses = getProviderApiMode(getProviderById(effectiveProviderId || m.providerId || '')) === 'responses';
 	const showProvider = effectiveProviderId || m.providerId || 'default';
 	return {
-		id: getBuiltinModelKey(m),
+		id: m.providerId ? getBuiltinModelKey(m) : m.id,
 		name: m.name,
-		family: m.family,
-		version: m.version,
+		family: m.family ?? 'mimo-custom',
+		version: m.version ?? 'custom',
 		detail: hasApiKey ? `${showProvider} · ${modelDetail}` : t('auth.apiKeyRequiredDetail'),
 		tooltip: hasApiKey ? undefined : t('auth.apiKeyRequiredDetail'),
 		statusIcon: hasApiKey ? undefined : new vscode.ThemeIcon('warning'),
@@ -656,7 +692,7 @@ function toChatInfo(m: ModelDefinition, hasApiKey: boolean, effectiveProviderId?
 			imageInput: m.capabilities.nativeVision,
 		},
 		...(m.capabilities.thinking && m.requiresThinkingParam
-			? { configurationSchema: (isResponses ? buildResponsesConfigurationSchema(m.id) : isMiMo ? buildMiMoReasoningSchema() : buildThinkingEffortSchema()) as ThinkingEffortConfigurationSchema }
+			? { configurationSchema: (isResponses ? buildResponsesConfigurationSchema(m.id, m) : isMiMo ? buildMiMoReasoningSchema() : buildThinkingEffortSchema(m)) as ThinkingEffortConfigurationSchema }
 			: {}),
 	};
 }
@@ -676,6 +712,46 @@ function buildMiMoReasoningSchema() {
 			},
 		},
 	} as const;
+}
+
+function mergeModelOverride(model: ModelDefinition, override: UserModelConfig | undefined): EffectiveModelConfig {
+	return {
+		...model,
+		...(override ?? {}),
+		id: model.id,
+		name: override?.name || model.name,
+		providerId: override?.providerId ?? model.providerId,
+		maxInputTokens: override?.maxInputTokens || model.maxInputTokens,
+		maxOutputTokens: override?.maxOutputTokens || model.maxOutputTokens,
+		capabilities: {
+			toolCalling: override?.toolCalling ?? model.capabilities.toolCalling,
+			nativeVision: override?.nativeVision ?? model.capabilities.nativeVision,
+			thinking: override?.thinking ?? model.capabilities.thinking,
+		},
+		enhancedVision: override?.enhancedVision ?? model.enhancedVision,
+		requiresThinkingParam: override?.requiresThinkingParam ?? model.requiresThinkingParam,
+		temperature: override?.temperature ?? model.temperature,
+		topP: override?.topP ?? model.topP,
+		supportedApiModes: override?.supportedApiModes?.length ? override.supportedApiModes : model.supportedApiModes,
+		reasoningEfforts: override?.reasoningEfforts?.length ? override.reasoningEfforts : model.reasoningEfforts,
+		defaultReasoningEffort: override?.defaultReasoningEffort ?? model.defaultReasoningEffort,
+		verbosityOptions: override?.verbosityOptions?.length ? override.verbosityOptions : model.verbosityOptions,
+		defaultVerbosity: override?.defaultVerbosity ?? model.defaultVerbosity,
+	};
+}
+
+function userModelToEffectiveModel(model: UserModelConfig | undefined): EffectiveModelConfig | undefined {
+	if (!model) {
+		return undefined;
+	}
+	return {
+		...model,
+		capabilities: {
+			toolCalling: model.toolCalling,
+			nativeVision: model.nativeVision,
+			thinking: model.thinking,
+		},
+	};
 }
 
 function getConfiguredThinkingEffort(options: ModelConfigurationOptions): ThinkingEffort {

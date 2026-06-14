@@ -1,24 +1,30 @@
 import vscode from 'vscode';
-import { WALKTHROUGH_ID, WELCOME_SHOWN_KEY, OPEN_CONFIG_COMMAND } from './consts';
-import { getProviders, resolveProviderForModel, getRelatedProviders } from './config';
+import { getProviders, resolveProviderForModel } from './config';
+import { OPEN_CONFIG_COMMAND, WALKTHROUGH_ID, WELCOME_SHOWN_KEY } from './consts';
 import { t } from './i18n';
 import { logger } from './logger';
-import { DeepSeekChatProvider } from './provider';
-import { initStatusBar } from './statusBar';
-import { ConfigViewPanel } from './views/configView';
-import { MemoryManager } from './memory/manager';
 import { registerMemoryCommands } from './memory/commands';
+import { MemoryManager } from './memory/manager';
+import { DeepSeekChatProvider } from './provider';
+import { initStatusBar, OPEN_OUTPUT_RATE_PANEL_COMMAND, openOutputRatePanel } from './statusBar';
+import { ConfigViewPanel } from './views/configView';
 
 let activeProvider: DeepSeekChatProvider | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
 	logger.info('Activating extension');
+	logger.info(
+		`[Extension] loaded id=${context.extension.id}`
+		+ ` version=${context.extension.packageJSON?.version ?? 'unknown'}`
+		+ ` path=${context.extensionUri.fsPath}`,
+	);
 
 	// Initialize token usage status bar
 	initStatusBar(context);
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand('mimo-copilot.showLogs', () => logger.show()),
+		vscode.commands.registerCommand(OPEN_OUTPUT_RATE_PANEL_COMMAND, () => openOutputRatePanel()),
 		vscode.commands.registerCommand('mimo-copilot.getApiKey', () =>
 			vscode.env.openExternal(vscode.Uri.parse('https://platform.deepseek.com/api_keys')),
 		),

@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
-import type { ProviderDefinition, UserModelConfig } from '../types';
-import { CONFIG_SECTION, MODELS, getBuiltinModelByPickerId, getBuiltinModelKey } from '../consts';
-import { getProviders, getRelatedProviders, getToolOutputCompressionSettings, getUserModelKey } from '../config';
-import type { ToolOutputCompressionSettings } from '../config';
 import { updateMiMoModelProviders } from '../auth';
+import type { ToolOutputCompressionSettings } from '../config';
+import { getProviders, getRelatedProviders, getResponsesMaxNoFeedbackReconnectAttempts, getResponsesNoFeedbackReconnectSeconds, getToolOutputCompressionSettings, getUserModelKey, getWaitingForResponseThresholdSeconds } from '../config';
+import { CONFIG_SECTION, MODELS, getBuiltinModelByPickerId, getBuiltinModelKey } from '../consts';
 import { t } from '../i18n';
+import type { ProviderDefinition, UserModelConfig } from '../types';
 
 // ---- Types ----
 
@@ -19,12 +19,18 @@ interface InitPayload {
 		modelOptions: Array<{ id: string; name: string }>;
 	};
 	compressionSettings: ToolOutputCompressionSettings;
+	responsesRuntimeSettings: {
+		waitingForResponseThresholdSeconds: number;
+		noFeedbackReconnectSeconds: number;
+		maxNoFeedbackReconnectAttempts: number;
+	};
 }
 
 type IncomingMessage =
 	| { type: 'requestInit' }
 	| { type: 'saveMemorySettings'; enabled: boolean; recallModel: string }
 	| { type: 'saveCompressionSettings'; settings: ToolOutputCompressionSettings }
+	| { type: 'saveResponsesRuntimeSettings'; settings: InitPayload['responsesRuntimeSettings'] }
 	| { type: 'addProvider'; provider: ProviderDefinition; apiKey?: string }
 	| { type: 'updateProvider'; provider: ProviderDefinition; apiKey?: string }
 	| { type: 'deleteProvider'; providerId: string }
@@ -120,6 +126,9 @@ export class ConfigViewPanel {
 				break;
 			case 'saveCompressionSettings':
 				await this.saveCompressionSettings(message.settings);
+				break;
+			case 'saveResponsesRuntimeSettings':
+				await this.saveResponsesRuntimeSettings(message.settings);
 				break;
 			case 'addProvider':
 			case 'updateProvider':
@@ -224,6 +233,11 @@ export class ConfigViewPanel {
 				temperature: override?.temperature ?? m.temperature,
 				topP: override?.topP ?? m.topP,
 				requiresThinkingParam: override?.requiresThinkingParam ?? m.requiresThinkingParam,
+				supportedApiModes: override?.supportedApiModes?.length ? override.supportedApiModes : m.supportedApiModes,
+				reasoningEfforts: override?.reasoningEfforts?.length ? override.reasoningEfforts : m.reasoningEfforts,
+				defaultReasoningEffort: override?.defaultReasoningEffort ?? m.defaultReasoningEffort,
+				verbosityOptions: override?.verbosityOptions?.length ? override.verbosityOptions : m.verbosityOptions,
+				defaultVerbosity: override?.defaultVerbosity ?? m.defaultVerbosity,
 				builtin: true,
 				hidden: isHidden,
 			});
@@ -242,10 +256,15 @@ export class ConfigViewPanel {
 			modelOptions: this.getMemoryRecallModelOptions(),
 		};
 		const compressionSettings = getToolOutputCompressionSettings();
+		const responsesRuntimeSettings = {
+			waitingForResponseThresholdSeconds: getWaitingForResponseThresholdSeconds(),
+			noFeedbackReconnectSeconds: getResponsesNoFeedbackReconnectSeconds(),
+			maxNoFeedbackReconnectAttempts: getResponsesMaxNoFeedbackReconnectAttempts(),
+		};
 
 		this.panel.webview.postMessage({
 			type: 'init',
-			payload: { providers, providerKeys, models: allModels, strings, memorySettings, compressionSettings } satisfies InitPayload,
+			payload: { providers, providerKeys, models: allModels, strings, memorySettings, compressionSettings, responsesRuntimeSettings } satisfies InitPayload,
 		} as OutgoingMessage);
 	}
 
@@ -295,6 +314,16 @@ export class ConfigViewPanel {
 			modelsProviderRequired: t('configView.models.providerRequired'),
 			modelsMaxInputRequired: t('configView.models.maxInputRequired'),
 			modelsMaxOutputRequired: t('configView.models.maxOutputRequired'),
+			modelsFormSupportedApiModesLabel: t('configView.models.form.supportedApiModesLabel'),
+			modelsFormSupportedApiModesHint: t('configView.models.form.supportedApiModesHint'),
+			modelsFormReasoningEffortsLabel: t('configView.models.form.reasoningEffortsLabel'),
+			modelsFormReasoningEffortsHint: t('configView.models.form.reasoningEffortsHint'),
+			modelsFormDefaultReasoningLabel: t('configView.models.form.defaultReasoningLabel'),
+			modelsFormVerbosityOptionsLabel: t('configView.models.form.verbosityOptionsLabel'),
+			modelsFormVerbosityOptionsHint: t('configView.models.form.verbosityOptionsHint'),
+			modelsFormDefaultVerbosityLabel: t('configView.models.form.defaultVerbosityLabel'),
+			apiModeChatCompletions: t('configView.providers.form.apiModeChatCompletions'),
+			apiModeResponses: t('configView.providers.form.apiModeResponses'),
 			modelsHideConfirm: t('configView.models.hideConfirm'),
 			modelsDeleteConfirm: t('configView.models.deleteConfirm'),
 		};
@@ -373,6 +402,31 @@ export class ConfigViewPanel {
 		await update('keepOriginalImagesWhenDisabled', !!settings.keepOriginalImagesWhenDisabled);
 
 		vscode.window.showInformationMessage(t('configView.compression.saved'));
+		await this.sendInit();
+	}
+
+	private async saveResponsesRuntimeSettings(settings: InitPayload['responsesRuntimeSettings']) {
+		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+		const clamp = (value: number, fallback: number, min: number, max: number) => {
+			const numeric = Number(value);
+			return Number.isFinite(numeric) ? Math.min(max, Math.max(min, Math.floor(numeric))) : fallback;
+		};
+		await config.update(
+			'responses.waitingForResponseThresholdSeconds',
+			clamp(settings.waitingForResponseThresholdSeconds, 15, 1, 300),
+			vscode.ConfigurationTarget.Global,
+		);
+		await config.update(
+			'responses.noFeedbackReconnectSeconds',
+			clamp(settings.noFeedbackReconnectSeconds, 30, 5, 600),
+			vscode.ConfigurationTarget.Global,
+		);
+		await config.update(
+			'responses.maxNoFeedbackReconnectAttempts',
+			clamp(settings.maxNoFeedbackReconnectAttempts, 3, 1, 10),
+			vscode.ConfigurationTarget.Global,
+		);
+		vscode.window.showInformationMessage(t('configView.responses.saved'));
 		await this.sendInit();
 	}
 
@@ -455,6 +509,7 @@ export class ConfigViewPanel {
 	private async addModel(model: UserModelConfig) {
 		const config = vscode.workspace.getConfiguration();
 		const models = this.getUserModels();
+		model = this.normalizeModelConfig(model);
 		const key = getUserModelKey(model);
 		if (models.some((m) => getUserModelKey(m) === key)) {
 			vscode.window.showErrorMessage(t('configView.models.duplicate', key));
@@ -470,6 +525,7 @@ export class ConfigViewPanel {
 	private async updateModel(model: UserModelConfig, originalId: string) {
 		const config = vscode.workspace.getConfiguration();
 		const models = this.getUserModels();
+		model = this.normalizeModelConfig(model);
 		const key = getUserModelKey(model);
 		const idx = models.findIndex((m) => getUserModelKey(m) === originalId);
 		if (idx >= 0) {
@@ -481,6 +537,23 @@ export class ConfigViewPanel {
 		await this.unhideModel(originalId);
 		vscode.window.showInformationMessage(t('configView.models.updated', model.name));
 		await this.sendInit();
+	}
+
+	private normalizeModelConfig(model: UserModelConfig): UserModelConfig {
+		const supportedApiModes = model.supportedApiModes?.filter((mode) => mode === 'chat-completions' || mode === 'responses');
+		const reasoningEfforts = model.reasoningEfforts?.filter((effort) =>
+			effort === 'none' || effort === 'low' || effort === 'medium' || effort === 'high' || effort === 'max' || effort === 'xhigh' || effort === 'on' || effort === 'off',
+		);
+		const verbosityOptions = model.verbosityOptions?.filter((verbosity) => verbosity === 'low' || verbosity === 'medium' || verbosity === 'high');
+		return {
+			...model,
+			enhancedVision: model.enhancedVision ?? false,
+			...(supportedApiModes?.length ? { supportedApiModes } : {}),
+			...(reasoningEfforts?.length ? { reasoningEfforts } : {}),
+			...(model.defaultReasoningEffort && reasoningEfforts?.includes(model.defaultReasoningEffort) ? { defaultReasoningEffort: model.defaultReasoningEffort } : {}),
+			...(verbosityOptions?.length ? { verbosityOptions } : {}),
+			...(model.defaultVerbosity && verbosityOptions?.includes(model.defaultVerbosity) ? { defaultVerbosity: model.defaultVerbosity } : {}),
+		};
 	}
 
 	private async deleteModel(modelId: string) {
@@ -586,6 +659,11 @@ export class ConfigViewPanel {
 <div class="field"><label for="mf-enhancedVision">${t('configView.models.form.enhancedVisionLabel')}</label><select id="mf-enhancedVision"><option value="false">${t('configView.common.no')}</option><option value="true">${t('configView.common.yes')}</option></select><div class="hint">${t('configView.models.form.enhancedVisionHint')}</div></div>
 <div class="field"><label for="mf-thinking">${t('configView.models.form.thinkingLabel')}</label><select id="mf-thinking"><option value="true">${t('configView.common.yes')}</option><option value="false">${t('configView.common.no')}</option></select></div>
 <div class="field"><label for="mf-requiresThinkingParam">${t('configView.models.form.requiresThinkingParamLabel')}</label><select id="mf-requiresThinkingParam"><option value="true">${t('configView.common.yes')}</option><option value="false">${t('configView.common.no')}</option></select><div class="hint">${t('configView.models.form.requiresThinkingParamHint')}</div></div>
+<div class="field"><label>${t('configView.models.form.supportedApiModesLabel')}</label><div id="mf-supportedApiModes" class="checkbox-group"><label><input type="checkbox" value="chat-completions"/> ${t('configView.providers.form.apiModeChatCompletions')}</label><label><input type="checkbox" value="responses"/> ${t('configView.providers.form.apiModeResponses')}</label></div><div class="hint">${t('configView.models.form.supportedApiModesHint')}</div></div>
+<div class="field"><label>${t('configView.models.form.reasoningEffortsLabel')}</label><div id="mf-reasoningEfforts" class="checkbox-group"><label><input type="checkbox" value="none"/> none</label><label><input type="checkbox" value="low"/> low</label><label><input type="checkbox" value="medium"/> medium</label><label><input type="checkbox" value="high"/> high</label><label><input type="checkbox" value="max"/> max</label><label><input type="checkbox" value="xhigh"/> xhigh</label></div><div class="hint">${t('configView.models.form.reasoningEffortsHint')}</div></div>
+<div class="field"><label for="mf-defaultReasoningEffort">${t('configView.models.form.defaultReasoningLabel')}</label><select id="mf-defaultReasoningEffort"></select></div>
+<div class="field"><label>${t('configView.models.form.verbosityOptionsLabel')}</label><div id="mf-verbosityOptions" class="checkbox-group"><label><input type="checkbox" value="low"/> low</label><label><input type="checkbox" value="medium"/> medium</label><label><input type="checkbox" value="high"/> high</label></div><div class="hint">${t('configView.models.form.verbosityOptionsHint')}</div></div>
+<div class="field"><label for="mf-defaultVerbosity">${t('configView.models.form.defaultVerbosityLabel')}</label><select id="mf-defaultVerbosity"></select></div>
 </div>
 <div class="form-actions"><button id="mf-save" class="btn primary">${t('configView.models.form.save')}</button><button id="mf-cancel" class="btn secondary">${t('configView.models.form.cancel')}</button></div>
 </section>
@@ -622,6 +700,18 @@ export class ConfigViewPanel {
 </div>
 <div id="compressionCouplingHint" class="notice"></div>
 <div class="form-actions"><button id="compressionSaveBtn" class="btn primary">${t('configView.compression.save')}</button></div>
+</div>
+</details></section>
+<section><details class="collapsible-section">
+<summary class="section-toggle"><h2>${t('configView.responses.runtimeSection')}</h2></summary>
+<div class="section-body">
+<div class="hint">${t('configView.responses.runtimeDescription')}</div>
+<div class="form-grid">
+<div class="field"><label for="waitingForResponseThresholdSeconds">${t('configView.responses.waitThresholdLabel')}</label><input id="waitingForResponseThresholdSeconds" type="number" min="1" max="300" step="1"/><div class="hint">${t('configView.responses.waitThresholdHint')}</div></div>
+<div class="field"><label for="noFeedbackReconnectSeconds">${t('configView.responses.noFeedbackReconnectLabel')}</label><input id="noFeedbackReconnectSeconds" type="number" min="5" max="600" step="1"/><div class="hint">${t('configView.responses.noFeedbackReconnectHint')}</div></div>
+<div class="field"><label for="maxNoFeedbackReconnectAttempts">${t('configView.responses.maxReconnectAttemptsLabel')}</label><input id="maxNoFeedbackReconnectAttempts" type="number" min="1" max="10" step="1"/><div class="hint">${t('configView.responses.maxReconnectAttemptsHint')}</div></div>
+</div>
+<div class="form-actions"><button id="responsesRuntimeSaveBtn" class="btn primary">${t('configView.responses.save')}</button></div>
 </div>
 </details></section>
 </div>

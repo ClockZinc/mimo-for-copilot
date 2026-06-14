@@ -28,11 +28,22 @@ function write(level: string, args: unknown[]): void {
 	getChannel().appendLine(`[${ts()}] [${level}] ${text}`);
 }
 
+function writeAppend(level: string, text: string): void {
+	getChannel().append(`[${ts()}] [${level}] ${text}`);
+}
+
+function append(text: string): void {
+	getChannel().append(text);
+}
+
 export const logger = {
 	info: (...args: unknown[]) => write('info', args),
 	warn: (...args: unknown[]) => write('warn', args),
 	error: (...args: unknown[]) => write('error', args),
 	debug: (...args: unknown[]) => write('debug', args),
+	debugAppendStart: (text: string) => writeAppend('debug', text),
+	append: (text: string) => append(text),
+	endLine: () => append('\n'),
 	show: () => getChannel().show(),
 	dispose: () => {
 		channel?.dispose();
