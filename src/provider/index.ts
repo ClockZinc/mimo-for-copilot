@@ -502,12 +502,12 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 				},
 				{
 					onContent: (content: string) => {
-						recordOutputTokenText(outputRateSessionId, content);
+						recordOutputTokenText(outputRateSessionId, content, 'text');
 						safeProgress.report(new vscode.LanguageModelTextPart(content));
 					},
 
 					onThinking: (text: string) => {
-						recordOutputTokenText(outputRateSessionId, text);
+						recordOutputTokenText(outputRateSessionId, text, 'thinking');
 						accumulatedReasoning += text;
 
 						// Reasoning/thinking belongs in VS Code's thinking/steps area,
@@ -519,9 +519,9 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 						);
 					},
 
-						onToolDelta: (text: string) => {
-							recordOutputTokenText(outputRateSessionId, text);
-						},
+					onToolDelta: (text, info) => {
+						recordOutputTokenText(outputRateSessionId, text, 'tool', info);
+					},
 
 					onToolCall: (toolCall: DeepSeekToolCall) => {
 						pendingToolCallIds.push(toolCall.id);

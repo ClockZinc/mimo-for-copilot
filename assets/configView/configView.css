@@ -38,6 +38,9 @@ section{margin-bottom:24px}
 .card-info .meta{font-size:12px;color:var(--vscode-descriptionForeground);margin-top:2px;
 	white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .card-actions{display:flex;gap:6px;flex-shrink:0}
+.inline-form{background:var(--vscode-editor-background);border:1px solid var(--vscode-focusBorder,#007acc);
+	border-radius:6px;padding:14px 16px;margin:0 0 4px 0}
+.inline-form .section-header{margin-bottom:12px}
 
 /* ---- Form ---- */
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
@@ -51,6 +54,12 @@ section{margin-bottom:24px}
 .field select:focus{border-color:var(--vscode-focusBorder,#007acc);outline:none}
 .field input:disabled{opacity:0.5}
 .hint{font-size:11px;color:var(--vscode-descriptionForeground)}
+.provider-tips{border:1px solid var(--vscode-widget-border,#333);border-radius:6px;
+	background:color-mix(in srgb,var(--vscode-editor-background) 88%,var(--vscode-focusBorder,#007acc) 12%);
+	padding:10px 12px;min-height:150px;font-size:12px;color:var(--vscode-descriptionForeground)}
+.provider-tips .tips-title{font-size:13px;font-weight:600;color:var(--vscode-foreground);margin-bottom:6px}
+.provider-tips ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:5px}
+.provider-tips li{line-height:1.45}
 .form-actions{display:flex;gap:8px;margin-top:8px}
 .checkbox-row{display:flex;align-items:flex-start;gap:8px;min-height:32px;padding-top:6px}
 .checkbox-row input[type="checkbox"]{width:16px;height:16px;flex-shrink:0;margin-top:2px}

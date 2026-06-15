@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { updateMiMoModelProviders } from '../auth';
 import type { ToolOutputCompressionSettings } from '../config';
-import { getProviders, getRelatedProviders, getResponsesMaxNoFeedbackReconnectAttempts, getResponsesNoFeedbackReconnectSeconds, getToolOutputCompressionSettings, getUserModelKey, getWaitingForResponseThresholdSeconds } from '../config';
+import { getProviders, getRelatedProviders, getToolOutputCompressionSettings, getUserModelKey } from '../config';
 import { CONFIG_SECTION, MODELS, getBuiltinModelByPickerId, getBuiltinModelKey } from '../consts';
 import { t } from '../i18n';
 import type { ProviderDefinition, UserModelConfig } from '../types';
@@ -19,18 +19,12 @@ interface InitPayload {
 		modelOptions: Array<{ id: string; name: string }>;
 	};
 	compressionSettings: ToolOutputCompressionSettings;
-	responsesRuntimeSettings: {
-		waitingForResponseThresholdSeconds: number;
-		noFeedbackReconnectSeconds: number;
-		maxNoFeedbackReconnectAttempts: number;
-	};
 }
 
 type IncomingMessage =
 	| { type: 'requestInit' }
 	| { type: 'saveMemorySettings'; enabled: boolean; recallModel: string }
 	| { type: 'saveCompressionSettings'; settings: ToolOutputCompressionSettings }
-	| { type: 'saveResponsesRuntimeSettings'; settings: InitPayload['responsesRuntimeSettings'] }
 	| { type: 'addProvider'; provider: ProviderDefinition; apiKey?: string }
 	| { type: 'updateProvider'; provider: ProviderDefinition; apiKey?: string }
 	| { type: 'deleteProvider'; providerId: string }
@@ -126,9 +120,6 @@ export class ConfigViewPanel {
 				break;
 			case 'saveCompressionSettings':
 				await this.saveCompressionSettings(message.settings);
-				break;
-			case 'saveResponsesRuntimeSettings':
-				await this.saveResponsesRuntimeSettings(message.settings);
 				break;
 			case 'addProvider':
 			case 'updateProvider':
@@ -256,15 +247,10 @@ export class ConfigViewPanel {
 			modelOptions: this.getMemoryRecallModelOptions(),
 		};
 		const compressionSettings = getToolOutputCompressionSettings();
-		const responsesRuntimeSettings = {
-			waitingForResponseThresholdSeconds: getWaitingForResponseThresholdSeconds(),
-			noFeedbackReconnectSeconds: getResponsesNoFeedbackReconnectSeconds(),
-			maxNoFeedbackReconnectAttempts: getResponsesMaxNoFeedbackReconnectAttempts(),
-		};
 
 		this.panel.webview.postMessage({
 			type: 'init',
-			payload: { providers, providerKeys, models: allModels, strings, memorySettings, compressionSettings, responsesRuntimeSettings } satisfies InitPayload,
+			payload: { providers, providerKeys, models: allModels, strings, memorySettings, compressionSettings } satisfies InitPayload,
 		} as OutgoingMessage);
 	}
 
@@ -402,31 +388,6 @@ export class ConfigViewPanel {
 		await update('keepOriginalImagesWhenDisabled', !!settings.keepOriginalImagesWhenDisabled);
 
 		vscode.window.showInformationMessage(t('configView.compression.saved'));
-		await this.sendInit();
-	}
-
-	private async saveResponsesRuntimeSettings(settings: InitPayload['responsesRuntimeSettings']) {
-		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-		const clamp = (value: number, fallback: number, min: number, max: number) => {
-			const numeric = Number(value);
-			return Number.isFinite(numeric) ? Math.min(max, Math.max(min, Math.floor(numeric))) : fallback;
-		};
-		await config.update(
-			'responses.waitingForResponseThresholdSeconds',
-			clamp(settings.waitingForResponseThresholdSeconds, 15, 1, 300),
-			vscode.ConfigurationTarget.Global,
-		);
-		await config.update(
-			'responses.noFeedbackReconnectSeconds',
-			clamp(settings.noFeedbackReconnectSeconds, 30, 5, 600),
-			vscode.ConfigurationTarget.Global,
-		);
-		await config.update(
-			'responses.maxNoFeedbackReconnectAttempts',
-			clamp(settings.maxNoFeedbackReconnectAttempts, 3, 1, 10),
-			vscode.ConfigurationTarget.Global,
-		);
-		vscode.window.showInformationMessage(t('configView.responses.saved'));
 		await this.sendInit();
 	}
 
@@ -638,7 +599,8 @@ export class ConfigViewPanel {
 <div class="field"><label for="pf-name">${t('configView.providers.form.nameLabel')}</label><input id="pf-name" type="text" placeholder="DeepSeek"/></div>
 <div class="field"><label for="pf-apiMode">${t('configView.providers.form.apiModeLabel')}</label><select id="pf-apiMode"><option value="chat-completions">${t('configView.providers.form.apiModeChatCompletions')}</option><option value="responses">${t('configView.providers.form.apiModeResponses')}</option></select><div class="hint">${t('configView.providers.form.apiModeHint')}</div></div>
 <div class="field"><label for="pf-baseUrl">${t('configView.providers.form.baseUrlLabel')}</label><input id="pf-baseUrl" type="text" placeholder="https://api.deepseek.com"/><div class="hint">${t('configView.providers.form.baseUrlHint')}</div></div>
-<div class="field"><label for="pf-apiKey">${t('configView.providers.form.apiKeyLabel')}</label><div class="input-with-toggle"><input id="pf-apiKey" type="password" placeholder="${t('configView.providers.form.apiKeyPlaceholder')}"/><button id="pf-apiKey-toggle" class="btn secondary small toggle-eye" title="${t('configView.providers.form.apiKeyToggle')}">*</button></div><div class="hint">${t('configView.providers.form.apiKeyHint')}</div></div>
+<div class="field"><label for="pf-apiKey">${t('configView.providers.form.apiKeyLabel')}</label><div class="input-with-toggle"><input id="pf-apiKey" type="password" placeholder="${t('configView.providers.form.apiKeyPlaceholder')}"/><button id="pf-apiKey-toggle" class="btn secondary small toggle-eye" title="${t('configView.providers.form.apiKeyToggle')}">👁</button></div><div class="hint">${t('configView.providers.form.apiKeyHint')}</div></div>
+<div id="providerTips" class="provider-tips"></div>
 </div>
 <div class="hint">${t('configView.providers.form.responsesHint')}</div>
 <div class="form-actions"><button id="pf-save" class="btn primary">${t('configView.providers.form.save')}</button><button id="pf-cancel" class="btn secondary">${t('configView.providers.form.cancel')}</button><button id="pf-fetchModels" class="btn secondary">${t('configView.providers.form.fetchModels')}</button></div>
@@ -700,18 +662,6 @@ export class ConfigViewPanel {
 </div>
 <div id="compressionCouplingHint" class="notice"></div>
 <div class="form-actions"><button id="compressionSaveBtn" class="btn primary">${t('configView.compression.save')}</button></div>
-</div>
-</details></section>
-<section><details class="collapsible-section">
-<summary class="section-toggle"><h2>${t('configView.responses.runtimeSection')}</h2></summary>
-<div class="section-body">
-<div class="hint">${t('configView.responses.runtimeDescription')}</div>
-<div class="form-grid">
-<div class="field"><label for="waitingForResponseThresholdSeconds">${t('configView.responses.waitThresholdLabel')}</label><input id="waitingForResponseThresholdSeconds" type="number" min="1" max="300" step="1"/><div class="hint">${t('configView.responses.waitThresholdHint')}</div></div>
-<div class="field"><label for="noFeedbackReconnectSeconds">${t('configView.responses.noFeedbackReconnectLabel')}</label><input id="noFeedbackReconnectSeconds" type="number" min="5" max="600" step="1"/><div class="hint">${t('configView.responses.noFeedbackReconnectHint')}</div></div>
-<div class="field"><label for="maxNoFeedbackReconnectAttempts">${t('configView.responses.maxReconnectAttemptsLabel')}</label><input id="maxNoFeedbackReconnectAttempts" type="number" min="1" max="10" step="1"/><div class="hint">${t('configView.responses.maxReconnectAttemptsHint')}</div></div>
-</div>
-<div class="form-actions"><button id="responsesRuntimeSaveBtn" class="btn primary">${t('configView.responses.save')}</button></div>
 </div>
 </details></section>
 </div>

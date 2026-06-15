@@ -2,7 +2,7 @@ import type sharp from 'sharp';
 import type { CancellationToken } from 'vscode';
 import vscode from 'vscode';
 import type { ToolImageOutputFormat, ToolOutputCompressionSettings } from '../config';
-import { getApiModelId, getResponsesExpandedLogging, getResponsesMaxNoFeedbackReconnectAttempts, getResponsesNoFeedbackReconnectSeconds, getToolOutputCompressionSettings } from '../config';
+import { getApiModelId, getResponsesExpandedLogging, getResponsesMaxNoFeedbackReconnectAttempts, getResponsesNoFeedbackReconnectEnabled, getResponsesNoFeedbackReconnectSeconds, getToolOutputCompressionSettings } from '../config';
 import { getBaseModelId } from '../consts';
 import { t } from '../i18n';
 import { logger } from '../logger';
@@ -1009,15 +1009,15 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 				request,
 				{
 					onContent: (content: string) => {
-						recordOutputTokenText(outputRateSessionId, content);
+						recordOutputTokenText(outputRateSessionId, content, 'text');
 						args.progress.report(new vscode.LanguageModelTextPart(content));
 					},
 					onThinking: (text: string) => {
-						recordOutputTokenText(outputRateSessionId, text);
+						recordOutputTokenText(outputRateSessionId, text, 'thinking');
 						reportThinkingChunk(text);
 					},
-					onToolDelta: (text: string) => {
-						recordOutputTokenText(outputRateSessionId, text);
+					onToolDelta: (text, info) => {
+						recordOutputTokenText(outputRateSessionId, text, 'tool', info);
 					},
 					onToolCall: (toolCall: DeepSeekToolCall) => {
 						try {
@@ -1383,6 +1383,9 @@ function withNoFeedbackTimeout<T>(
 	controller: AbortController,
 	timeoutMs: number,
 ): Promise<T> {
+	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+		return promise;
+	}
 	let timeout: NodeJS.Timeout | undefined;
 	const timeoutPromise = new Promise<never>((_resolve, reject) => {
 		timeout = setTimeout(() => {
@@ -1421,7 +1424,8 @@ class ResponsesClient {
 		let emittedResponsePart = false;
 		let streamConnected = false;
 		let activeStreamState: ResponsesStreamState | undefined;
-		const noFeedbackReconnectMs = getResponsesNoFeedbackReconnectSeconds() * 1000;
+		const noFeedbackReconnectEnabled = getResponsesNoFeedbackReconnectEnabled();
+		const noFeedbackReconnectMs = noFeedbackReconnectEnabled ? getResponsesNoFeedbackReconnectSeconds() * 1000 : 0;
 		const maxNoFeedbackAttempts = getResponsesMaxNoFeedbackReconnectAttempts();
 		const cancelListener = cancellationToken?.onCancellationRequested(() => {
 			controller.abort();
@@ -1972,7 +1976,7 @@ class ResponsesClient {
 			}
 			case 'response.function_call_arguments.delta':
 			case 'response.function_call_arguments.done': {
-				endResponsesDeltaLog(state);
+				endResponsesDeltaLogUnless(state, 'tool');
 				reportEndThinking(state, callbacks);
 				if (!state.emittedBeginToolCallsHint && state.hasEmittedAssistantText) {
 					callbacks.onContent(' ');
@@ -1996,13 +2000,19 @@ class ResponsesClient {
 					pending.function.arguments += argsChunk;
 					if (argsChunk) {
 						appendResponsesDeltaLog(state, 'tool', argsChunk);
-						callbacks.onToolDelta?.(argsChunk);
+						callbacks.onToolDelta?.(argsChunk, {
+							id: pending.id,
+							index: outputIndex,
+							name: pending.function.name,
+							field: 'arguments',
+						});
 					}
 				} else if (argsChunk) {
 					pending.function.arguments = argsChunk;
 				}
 				state.pendingToolCalls.set(outputIndex, pending);
 				if (eventType === 'response.function_call_arguments.done') {
+					endResponsesDeltaLog(state);
 					logger.debug(
 						`[Responses] tool.arguments.done outputIndex=${outputIndex}`
 						+ ` name=${pending.function.name || '(pending)'}`
@@ -2013,7 +2023,11 @@ class ResponsesClient {
 			}
 			case 'response.output_item.added':
 			case 'response.output_item.done': {
-				endResponsesDeltaLog(state);
+				if (eventType === 'response.output_item.added') {
+					endResponsesDeltaLogUnless(state, 'tool');
+				} else {
+					endResponsesDeltaLog(state);
+				}
 				const item = event.item as ResponsesFunctionCallItem | undefined;
 				if (!item || item.type !== 'function_call') {
 					return;
@@ -2023,7 +2037,12 @@ class ResponsesClient {
 				reportEndThinking(state, callbacks);
 				if (eventType === 'response.output_item.added' && item.name) {
 					appendResponsesDeltaLog(state, 'tool', item.name);
-					callbacks.onToolDelta?.(item.name);
+					callbacks.onToolDelta?.(item.name, {
+						id: item.call_id,
+						index: typeof event.output_index === 'number' ? event.output_index : 0,
+						name: item.name,
+						field: 'name',
+					});
 				}
 				if (!state.emittedBeginToolCallsHint && state.hasEmittedAssistantText) {
 					callbacks.onContent(' ');
@@ -2169,6 +2188,15 @@ function endResponsesDeltaLog(state: ResponsesStreamState): void {
 	}
 	logger.endLine();
 	state.activeDeltaLog = null;
+}
+
+function endResponsesDeltaLogUnless(
+	state: ResponsesStreamState,
+	keepKind: 'reasoning' | 'text' | 'tool',
+): void {
+	if (state.activeDeltaLog && state.activeDeltaLog !== keepKind) {
+		endResponsesDeltaLog(state);
+	}
 }
 
 function logCompletedResponseSummary(responseObject: Record<string, unknown>): void {

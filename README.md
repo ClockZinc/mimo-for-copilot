@@ -1,7 +1,7 @@
 <h1 align="center">MiMo for Copilot Chat</h1>
 
 <p align="center">
-  Bring <strong>MiMo</strong>, <strong>DeepSeek V4</strong>, <strong>Chat Completions</strong>, and <strong>OpenAI Responses-compatible</strong> models into the native GitHub Copilot Chat experience.
+  Use <strong>GPT relay/proxy providers</strong>, <strong>MiMo</strong>, <strong>DeepSeek</strong>, and <strong>OpenAI-compatible</strong> models in the native GitHub Copilot Chat experience.
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@
 <table>
   <tr>
     <td><strong>Native Copilot Chat</strong><br>Use additional models directly from the Copilot Chat model picker.</td>
-    <td><strong>Multi-provider BYOK</strong><br>Configure MiMo, DeepSeek, Chat Completions, and Responses-compatible endpoints with secure keys.</td>
+    <td><strong>Multi-provider BYOK</strong><br>Configure GPT relay/proxy providers, MiMo, DeepSeek, Chat Completions, and Responses-compatible endpoints with secure keys.</td>
     <td><strong>Token & compression visibility</strong><br>See actual API prompt tokens and MiMo compression ratios from the status bar.</td>
   </tr>
   <tr>
@@ -63,9 +63,10 @@ This is the easiest always-visible entry point once the extension is running.
 
 ## ✨ Overview
 
-MiMo for Copilot Chat plugs additional provider-backed models directly into the Copilot Chat model picker.
+MiMo for Copilot Chat plugs GPT relay/proxy providers and additional provider-backed models directly into the Copilot Chat model picker.
 It keeps the built-in Copilot workflow intact while adding support for:
 
+- 🌉 GPT relay/proxy providers
 - 🧠 Xiaomi MiMo models
 - 🔷 DeepSeek V4 models
 - 🌐 Chat Completions and OpenAI Responses-compatible providers
@@ -82,7 +83,7 @@ flowchart LR
   C --> D[💬 Chat / Agent Mode]
   B --> E[🧠 Memory Mode]
   B --> F[👁️ Model Visibility]
-  G[MiMo / DeepSeek / Responses] --> B
+  G[GPT Relay / MiMo / DeepSeek / Responses] --> B
 ```
 
 ## 🎯 What you get

@@ -1,9 +1,9 @@
 {
   "name": "mimo-for-copilot",
   "displayName": "MiMo for Copilot Chat",
-  "description": "Use MiMo V2.5 Pro & DeepSeek V4 models in Copilot Chat. Vision, thinking mode, agent tools. Multi-provider BYOK.",
+  "description": "Use GPT relay/proxy providers, MiMo, DeepSeek, and OpenAI-compatible models in Copilot Chat. Vision, thinking mode, agent tools, multi-provider BYOK.",
   "icon": "resources/mimo.png",
-  "version": "1.1.8",
+  "version": "1.2.0",
   "publisher": "clockzincbit",
   "license": "MIT",
   "repository": {
@@ -472,6 +472,11 @@
           "maximum": 300,
           "description": "%mimo-copilot.config.responses.waitingForResponseThresholdSeconds.description%"
         },
+        "mimo-copilot.responses.enableNoFeedbackReconnect": {
+          "type": "boolean",
+          "default": true,
+          "description": "%mimo-copilot.config.responses.enableNoFeedbackReconnect.description%"
+        },
         "mimo-copilot.responses.noFeedbackReconnectSeconds": {
           "type": "number",
           "default": 30,
@@ -485,6 +490,28 @@
           "minimum": 1,
           "maximum": 10,
           "description": "%mimo-copilot.config.responses.maxNoFeedbackReconnectAttempts.description%"
+        },
+        "mimo-copilot.responses.outputRateTooltipRefreshSeconds": {
+          "type": "number",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 30,
+          "description": "%mimo-copilot.config.responses.outputRateTooltipRefreshSeconds.description%"
+        },
+        "mimo-copilot.outputRate.chartStyle": {
+          "type": "string",
+          "default": "hybrid",
+          "enum": [
+            "classic",
+            "neon",
+            "hybrid"
+          ],
+          "enumItemLabels": [
+            "Classic",
+            "Neon",
+            "Hybrid"
+          ],
+          "description": "%mimo-copilot.config.outputRate.chartStyle.description%"
         },
         "mimo-copilot.modelIdOverrides": {
           "type": "object",

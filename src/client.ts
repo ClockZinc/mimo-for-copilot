@@ -258,12 +258,22 @@ export class DeepSeekClient {
 									if (tc.function?.name) {
 										pending.function.name += tc.function.name;
 										appendDeltaLog('tool', tc.function.name);
-										callbacks.onToolDelta?.(tc.function.name);
+										callbacks.onToolDelta?.(tc.function.name, {
+											id: pending.id,
+											index: tc.index,
+											name: pending.function.name,
+											field: 'name',
+										});
 									}
 									if (tc.function?.arguments) {
 										pending.function.arguments += tc.function.arguments;
 										appendDeltaLog('tool', tc.function.arguments);
-										callbacks.onToolDelta?.(tc.function.arguments);
+										callbacks.onToolDelta?.(tc.function.arguments, {
+											id: pending.id,
+											index: tc.index,
+											name: pending.function.name,
+											field: 'arguments',
+										});
 									}
 								}
 							}

@@ -25,11 +25,6 @@
 		fallbackImageQuality: 70,
 		keepOriginalImagesWhenDisabled: false,
 	};
-	let responsesRuntimeSettings = {
-		waitingForResponseThresholdSeconds: 15,
-		noFeedbackReconnectSeconds: 30,
-		maxNoFeedbackReconnectAttempts: 3,
-	};
 	let strings = {};
 	let editingProviderId = null;
 	let editingModelId = null;
@@ -79,12 +74,9 @@
 	const compressionFallbackImageMaxEdge = document.getElementById('compressionFallbackImageMaxEdge');
 	const compressionFallbackImageQuality = document.getElementById('compressionFallbackImageQuality');
 	const compressionKeepOriginalImages = document.getElementById('compressionKeepOriginalImages');
-	const waitingForResponseThresholdSecondsInput = document.getElementById('waitingForResponseThresholdSeconds');
-	const noFeedbackReconnectSecondsInput = document.getElementById('noFeedbackReconnectSeconds');
-	const maxNoFeedbackReconnectAttemptsInput = document.getElementById('maxNoFeedbackReconnectAttempts');
-	const responsesRuntimeSaveBtn = document.getElementById('responsesRuntimeSaveBtn');
 	const compressionCouplingHint = document.getElementById('compressionCouplingHint');
 	const compressionSaveBtn = document.getElementById('compressionSaveBtn');
+	const providerTips = document.getElementById('providerTips');
 
 	function post(msg) { vscode.postMessage(msg); }
 
@@ -98,11 +90,9 @@
 				models = msg.payload.models || [];
 				memorySettings = msg.payload.memorySettings || memorySettings;
 				compressionSettings = msg.payload.compressionSettings || compressionSettings;
-				responsesRuntimeSettings = msg.payload.responsesRuntimeSettings || responsesRuntimeSettings;
 				strings = msg.payload.strings || strings;
 				renderMemorySettings();
 				renderCompressionSettings();
-				renderResponsesRuntimeSettings();
 				renderProviders();
 				renderModels();
 				break;
@@ -234,12 +224,6 @@
 		updateCompressionInterlocks();
 	}
 
-	function renderResponsesRuntimeSettings() {
-		waitingForResponseThresholdSecondsInput.value = responsesRuntimeSettings.waitingForResponseThresholdSeconds || 15;
-		noFeedbackReconnectSecondsInput.value = responsesRuntimeSettings.noFeedbackReconnectSeconds || 30;
-		maxNoFeedbackReconnectAttemptsInput.value = responsesRuntimeSettings.maxNoFeedbackReconnectAttempts || 3;
-	}
-
 	function updateCompressionInterlocks() {
 		var enabled = !!compressionEnabled.checked;
 		var truncation = !!compressionTruncate.checked;
@@ -316,17 +300,6 @@
 		});
 	});
 
-	responsesRuntimeSaveBtn.addEventListener('click', function () {
-		post({
-			type: 'saveResponsesRuntimeSettings',
-			settings: {
-				waitingForResponseThresholdSeconds: parseInt(waitingForResponseThresholdSecondsInput.value, 10) || 15,
-				noFeedbackReconnectSeconds: parseInt(noFeedbackReconnectSecondsInput.value, 10) || 30,
-				maxNoFeedbackReconnectAttempts: parseInt(maxNoFeedbackReconnectAttemptsInput.value, 10) || 3,
-			},
-		});
-	});
-
 	// ===== PROVIDER RENDER =====
 
 	function renderProviders() {
@@ -339,7 +312,8 @@
 			var p = providers[i];
 			var hasKey = !!providerKeys[p.id];
 			var card = document.createElement('div');
-			card.className = 'card';
+			card.className = 'card provider-card';
+			card.dataset.id = p.id;
 			card.innerHTML =
 				'<div class="card-info">' +
 					'<div class="name">' + esc(p.name) + ' <span style="color:var(--vscode-descriptionForeground);font-size:11px">(' + esc(p.id) + ')</span></div>' +
@@ -370,7 +344,8 @@
 		for (var i = 0; i < models.length; i++) {
 			var m = models[i];
 			var card = document.createElement('div');
-			card.className = 'card' + (m.hidden ? ' card-hidden' : '');
+			card.className = 'card model-card' + (m.hidden ? ' card-hidden' : '');
+			card.dataset.id = m.key || m.id;
 			var badges = [];
 			if (m.builtin) badges.push(strings.modelsBadgeBuiltin);
 			if (m.hidden) badges.push(strings.modelsBadgeHidden);
@@ -417,11 +392,38 @@
 
 	addProviderBtn.addEventListener('click', function () { showProviderForm(null); });
 
-	function showProviderForm(providerId) {
-		editingProviderId = providerId;
-		providerForm.style.display = 'block';
-		modelForm.style.display = 'none';
+	function hideProviderForm() {
+		providerForm.style.display = 'none';
+		editingProviderId = null;
 		fetchedModelsSection.style.display = 'none';
+	}
+
+	function moveProviderFormInline(providerId) {
+		providerForm.classList.add('inline-form');
+		if (!providerId) {
+			providerList.insertBefore(providerForm, providerList.firstChild);
+			return;
+		}
+		var card = providerList.querySelector('.provider-card[data-id="' + cssEscape(providerId) + '"]');
+		if (card && card.nextSibling !== providerForm) {
+			providerList.insertBefore(providerForm, card.nextSibling);
+		}
+	}
+
+	function showProviderForm(providerId) {
+		if (providerForm.style.display !== 'none' && editingProviderId === providerId) {
+			hideProviderForm();
+			return;
+		}
+		editingProviderId = providerId;
+		moveProviderFormInline(providerId);
+		providerForm.style.display = 'block';
+		hideModelForm();
+		fetchedModelsSection.style.display = 'none';
+		var apiKeyInput = document.getElementById('pf-apiKey');
+		var apiKeyToggle = document.getElementById('pf-apiKey-toggle');
+		apiKeyInput.type = 'password';
+		apiKeyToggle.textContent = '👁';
 		if (providerId) {
 			var p = providers.find(function (x) { return x.id === providerId; });
 			document.getElementById('pfTitle').textContent = format(strings.providersFormEditTitle, p ? p.name : providerId);
@@ -430,8 +432,10 @@
 			document.getElementById('pf-name').value = p ? p.name : '';
 			document.getElementById('pf-apiMode').value = p && p.apiMode === 'responses' ? 'responses' : 'chat-completions';
 			document.getElementById('pf-baseUrl').value = p ? p.baseUrl : '';
-			document.getElementById('pf-apiKey').value = providerKeys[providerId] || '';
-			document.getElementById('pf-apiKey').placeholder = providerKeys[providerId] ? strings.providersFormApiKeyRetainPlaceholder : strings.providersFormApiKeyPlaceholder;
+			apiKeyInput.value = '';
+			apiKeyInput.placeholder = providerKeys[providerId]
+				? '已保存 Key；留空保存不会修改。输入新 Key 后可用右侧按钮显示/隐藏。'
+				: strings.providersFormApiKeyPlaceholder;
 		} else {
 			document.getElementById('pfTitle').textContent = strings.providersFormAddTitle;
 			document.getElementById('pf-id').value = '';
@@ -439,9 +443,60 @@
 			document.getElementById('pf-name').value = '';
 			document.getElementById('pf-apiMode').value = 'chat-completions';
 			document.getElementById('pf-baseUrl').value = '';
-			document.getElementById('pf-apiKey').value = '';
-			document.getElementById('pf-apiKey').placeholder = strings.providersFormApiKeyPlaceholder;
+			apiKeyInput.value = '';
+			apiKeyInput.placeholder = strings.providersFormApiKeyPlaceholder;
 		}
+		renderProviderTips(providerId);
+	}
+
+	function renderProviderTips(providerId) {
+		var p = providerId ? providers.find(function (x) { return x.id === providerId; }) : null;
+		var title = providerId ? '这项怎么填？' : '新增服务商怎么填？';
+		var lines = [];
+		if (!providerId) {
+			lines = [
+				'如果是 GPT 类中转站，Base URL 通常要填到 /v1，例如：https://xxx.example.com/v1。',
+				'不要再额外写 /chat/completions 或 /responses，插件会按 API 模式自动拼接。',
+				'不知道选哪个模式时：普通 OpenAI 兼容站选 Chat Completions；明确写 Responses API 的站选 Responses。',
+				'API Key 保存后不会明文回显；留空保存会保留原 Key。',
+			];
+		} else if (providerId === 'mimo') {
+			lines = [
+				'这是小米 MiMo 官方接口，不是 Token Plan 地址。',
+				'官方 MiMo 默认 Base URL 是：https://api.xiaomimimo.com/v1。',
+				'如果你买的是 Token Plan，请改用下面的 MiMo Token Plan 服务商，URL 不是这一条。',
+				'API 模式一般保持 Chat Completions，除非服务商文档明确要求 Responses。',
+			];
+		} else if (providerId === 'mimo-tp') {
+			lines = [
+				'这是 MiMo Token Plan 专用接口，和上面的 MiMo 官方 URL 不一样。',
+				'Token Plan 默认 Base URL 是：https://token-plan-cn.xiaomimimo.com/v1。',
+				'如果你用的是官方 MiMo Key，请回到 MiMo (Xiaomi) 服务商配置。',
+				'API 模式一般保持 Chat Completions。',
+			];
+		} else if (providerId === 'deepseek') {
+			lines = [
+				'DeepSeek 官方地址通常填：https://api.deepseek.com。',
+				'DeepSeek 这里不需要手动加 /v1，也不要写 /chat/completions。',
+				'API 模式保持 Chat Completions。',
+				'如果你用的是第三方 DeepSeek 中转站，请按中转站文档填写，很多中转站会要求末尾带 /v1。',
+			];
+		} else if ((p && p.apiMode === 'responses') || providerId === 'openai-responses') {
+			lines = [
+				'Responses 类接口通常用于 GPT-5 / OpenAI Responses 兼容服务。',
+				'Base URL 填服务商给的根地址；很多 GPT 中转站需要填到 /v1。',
+				'不要手动追加 /responses，插件会自动使用 Responses 路径。',
+				'如果请求报 404，优先检查 URL 末尾是否应该加 /v1。',
+			];
+		} else {
+			lines = [
+				'大多数 GPT/Claude/DeepSeek 中转站的 Base URL 需要填到 /v1，例如：https://xxx.example.com/v1。',
+				'不要手动追加 /chat/completions，插件会自动拼接。',
+				'如果请求 404，优先试试在 Base URL 末尾加上或去掉 /v1。',
+				'API Key 保存后不会明文回显；输入新 Key 会覆盖旧 Key。',
+			];
+		}
+		providerTips.innerHTML = '<div class="tips-title">' + esc(title) + '</div><ul>' + lines.map(function (line) { return '<li>' + esc(line) + '</li>'; }).join('') + '</ul>';
 	}
 
 	document.getElementById('pf-save').addEventListener('click', function () {
@@ -458,24 +513,30 @@
 			provider: { id: id, name: name, baseUrl: baseUrl, apiMode: apiMode === 'responses' ? 'responses' : undefined },
 			apiKey: apiKey || undefined,
 		});
-		providerForm.style.display = 'none';
-		editingProviderId = null;
+		hideProviderForm();
 	});
 
 	document.getElementById('pf-cancel').addEventListener('click', function () {
-		providerForm.style.display = 'none';
-		editingProviderId = null;
+		hideProviderForm();
 	});
 
 	document.getElementById('pf-apiKey-toggle').addEventListener('click', function () {
 		var input = document.getElementById('pf-apiKey');
+		var toggle = document.getElementById('pf-apiKey-toggle');
+		if (!input.value) {
+			input.placeholder = providerKeys[editingProviderId]
+				? '已保存的 Key 不会明文回显；输入新 Key 后可显示/隐藏。'
+				: strings.providersFormApiKeyPlaceholder;
+			return;
+		}
 		input.type = input.type === 'password' ? 'text' : 'password';
+		toggle.textContent = input.type === 'password' ? '👁' : '🙈';
 	});
 
 	document.getElementById('pf-fetchModels').addEventListener('click', function () {
 		var baseUrl = document.getElementById('pf-baseUrl').value.trim();
-		var apiKey = document.getElementById('pf-apiKey').value;
 		var providerId = document.getElementById('pf-id').value.trim();
+		var apiKey = document.getElementById('pf-apiKey').value || providerKeys[providerId] || '';
 		if (!baseUrl) { alert(strings.providersBaseUrlRequired); return; }
 		if (!apiKey) { alert(strings.providersFetchApiKeyRequired); return; }
 		post({ type: 'fetchModels', providerId: providerId, baseUrl: baseUrl, apiKey: apiKey });
@@ -518,14 +579,41 @@
 		window.addEventListener('message', handler);
 	}
 
+	function cssEscape(value) {
+		if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(value);
+		return String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+	}
+
 	// ===== MODEL FORM =====
 
 	addModelBtn.addEventListener('click', function () { showModelForm(null); });
 
+	function hideModelForm() {
+		modelForm.style.display = 'none';
+		editingModelId = null;
+	}
+
+	function moveModelFormInline(modelId) {
+		modelForm.classList.add('inline-form');
+		if (!modelId) {
+			modelList.insertBefore(modelForm, modelList.firstChild);
+			return;
+		}
+		var card = modelList.querySelector('.model-card[data-id="' + cssEscape(modelId) + '"]');
+		if (card && card.nextSibling !== modelForm) {
+			modelList.insertBefore(modelForm, card.nextSibling);
+		}
+	}
+
 	function showModelForm(modelId) {
+		if (modelForm.style.display !== 'none' && editingModelId === modelId) {
+			hideModelForm();
+			return;
+		}
 		editingModelId = modelId;
+		moveModelFormInline(modelId);
 		modelForm.style.display = 'block';
-		providerForm.style.display = 'none';
+		hideProviderForm();
 		// Populate provider dropdown
 		var sel = document.getElementById('mf-providerId');
 		sel.innerHTML = '<option value="">' + esc(strings.modelsFormProviderPlaceholder) + '</option>';
@@ -621,13 +709,11 @@
 			model: model,
 			originalId: editingModelId || undefined,
 		});
-		modelForm.style.display = 'none';
-		editingModelId = null;
+		hideModelForm();
 	});
 
 	document.getElementById('mf-cancel').addEventListener('click', function () {
-		modelForm.style.display = 'none';
-		editingModelId = null;
+		hideModelForm();
 	});
 
 	function deleteModel(id) {

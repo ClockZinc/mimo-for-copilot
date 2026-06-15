@@ -43,6 +43,8 @@
   "configView.responses.runtimeDescription": "Control waiting and no-feedback reconnect behavior for OpenAI Responses-compatible providers.",
   "configView.responses.waitThresholdLabel": "Waiting-for-response threshold (seconds)",
   "configView.responses.waitThresholdHint": "If no output token arrives after this many seconds, the output-rate status bar shows a waiting timer.",
+  "configView.responses.enableReconnectLabel": "Enable no-feedback auto reconnect",
+  "configView.responses.enableReconnectHint": "When enabled, fully silent Responses streams are automatically replayed after the no-feedback timeout.",
   "configView.responses.noFeedbackReconnectLabel": "No-feedback reconnect timeout (seconds)",
   "configView.responses.noFeedbackReconnectHint": "If the Responses stream produces no SSE feedback for this many seconds, MiMo reconnects unless the stream already has visible progress.",
   "configView.responses.maxReconnectAttemptsLabel": "Maximum no-feedback reconnect attempts",
@@ -50,8 +52,11 @@
   "configView.responses.save": "Save Responses Parameters",
   "configView.responses.saved": "Responses parameters saved.",
   "mimo-copilot.config.responses.waitingForResponseThresholdSeconds.description": "Seconds to wait after sending a request before showing a waiting-for-response timer when no output token has arrived.",
+  "mimo-copilot.config.responses.enableNoFeedbackReconnect.description": "Enable automatic reconnect/replay when a Responses stream produces no SSE feedback before the timeout.",
   "mimo-copilot.config.responses.noFeedbackReconnectSeconds.description": "Seconds to wait for any Responses SSE feedback before reconnecting. Only fully silent streams are replayed; partial streams are finalized to avoid duplicate tool calls.",
   "mimo-copilot.config.responses.maxNoFeedbackReconnectAttempts.description": "Maximum number of no-feedback reconnect failures before showing connect Error.",
+  "mimo-copilot.config.responses.outputRateTooltipRefreshSeconds.description": "Seconds between Output Rate status bar tooltip refreshes. The status bar text can update faster while the tooltip refreshes slower to avoid flicker.",
+  "mimo-copilot.config.outputRate.chartStyle.description": "Visual style for the Output Rate chart. Classic keeps the current segmented line, Neon adds glow, and Hybrid adds subtle rate bars behind the line.",
   "mimo-copilot.config.visionModel.description": "Model ID for vision proxy. Leave empty for auto-detection.",
   "mimo-copilot.config.visionPrompt.description": "Prompt sent to the vision proxy model when describing image attachments."
 }

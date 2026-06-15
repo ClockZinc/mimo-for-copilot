@@ -183,9 +183,25 @@ export function getResponsesNoFeedbackReconnectSeconds(): number {
 	return getNumberSetting(config, 'responses.noFeedbackReconnectSeconds', 30, 5, 600);
 }
 
+export function getResponsesNoFeedbackReconnectEnabled(): boolean {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	return config.get<boolean>('responses.enableNoFeedbackReconnect', true);
+}
+
 export function getResponsesMaxNoFeedbackReconnectAttempts(): number {
 	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 	return getNumberSetting(config, 'responses.maxNoFeedbackReconnectAttempts', 3, 1, 10);
+}
+
+export function getOutputRateTooltipRefreshSeconds(): number {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	return getNumberSetting(config, 'responses.outputRateTooltipRefreshSeconds', 2, 1, 30);
+}
+
+export function getOutputRateChartStyle(): 'classic' | 'neon' | 'hybrid' {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	const value = config.get<string>('outputRate.chartStyle', 'hybrid');
+	return value === 'neon' || value === 'hybrid' ? value : 'classic';
 }
 
 // ---- Multi-provider management ----

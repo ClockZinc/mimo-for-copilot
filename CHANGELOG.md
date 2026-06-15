@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [1.2.0](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.1.7...v1.2.0) (2026-06-15)
+
+### Features
+
+* add Output Rate continuous session-aware chart window so new sessions no longer restart the visible curve
+* make Time / Token Breakdown use the same visible chart window while still splitting at session boundaries
+* add configurable Output Rate chart styles: `classic`, `neon`, and `hybrid`; default to `hybrid`
+* add runtime switch for Responses no-feedback automatic reconnect
+
+### Documentation
+
+* refresh extension description and README to prioritize GPT relay/proxy providers alongside MiMo, DeepSeek, and OpenAI-compatible models
+
 ## [1.1.7](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.1.6...v1.1.7) (2026-06-14)
 
 ### Bug Fixes

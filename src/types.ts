@@ -175,10 +175,17 @@ export interface DeepSeekStreamChunk {
 
 // ---- Stream callbacks ----
 
+export interface ToolDeltaInfo {
+	id?: string;
+	index?: number;
+	name?: string;
+	field?: 'name' | 'arguments';
+}
+
 export interface StreamCallbacks {
 	onContent: (content: string) => void;
 	onThinking: (text: string) => void;
-	onToolDelta?: (text: string) => void;
+	onToolDelta?: (text: string, info?: ToolDeltaInfo) => void;
 	onToolCall: (toolCall: DeepSeekToolCall) => void;
 	onError: (error: Error) => void;
 	onDone: () => void;
