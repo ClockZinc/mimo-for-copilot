@@ -61,6 +61,48 @@ After the extension is active, look at the **bottom-right status bar** in VS Cod
 
 This is the easiest always-visible entry point once the extension is running.
 
+## 📦 Install
+
+### 📎 Install from VSIX
+
+Download the latest `.vsix` file from GitHub Releases or from this repository, for example:
+
+- `mimo-for-copilot-1.2.0.vsix`
+
+#### Install with the VS Code UI
+
+1. Open **VS Code** or **VS Code Insiders**.
+2. Press **`Ctrl+Shift+P`** on Windows/Linux or **`Cmd+Shift+P`** on macOS.
+3. Type **`Extensions: Install from VSIX...`**.
+4. Select **`Extensions: Install from VSIX...`** from the Command Palette.
+5. Choose the downloaded `.vsix` file.
+6. Reload the window if VS Code asks you to.
+
+#### Optional: install from the command line
+
+For stable VS Code:
+
+```bash
+code --install-extension mimo-for-copilot-1.2.0.vsix --force
+```
+
+For VS Code Insiders:
+
+```bash
+code-insiders --install-extension mimo-for-copilot-1.2.0.vsix --force
+```
+
+To verify the installed version in PowerShell:
+
+```powershell
+code --list-extensions --show-versions | Select-String "mimo"
+code-insiders --list-extensions --show-versions | Select-String "mimo"
+```
+
+### 🛒 Marketplace
+
+Marketplace publishing may be unavailable in some cases. If Marketplace installation is not available, use the VSIX method above.
+
 ## ✨ Overview
 
 MiMo for Copilot Chat plugs GPT relay/proxy providers and additional provider-backed models directly into the Copilot Chat model picker.
@@ -160,18 +202,6 @@ If a tool image remains too large and has to be removed, MiMo always emits a bol
 - DeepSeek V4 Flash
 - GPT-5.4
 - GPT-5.5 — defaults to 258K input / 128K output tokens and can be overridden in model settings
-
-## 📦 Install
-
-### 🛒 Marketplace
-
-Install the extension from the VS Code Marketplace.
-
-### 📎 VSIX
-
-1. Download or build the VSIX.
-2. Run **Extensions: Install from VSIX...** in VS Code.
-3. Select the `.vsix` file and reload the window.
 
 ## 🧭 Typical workflow
 

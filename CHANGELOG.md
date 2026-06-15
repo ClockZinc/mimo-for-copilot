@@ -14,6 +14,7 @@
 ### Documentation
 
 * refresh extension description and README to prioritize GPT relay/proxy providers alongside MiMo, DeepSeek, and OpenAI-compatible models
+* document VSIX installation through the Command Palette, Extensions view, VS Code CLI, and VS Code Insiders CLI
 
 ## [1.1.7](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.1.6...v1.1.7) (2026-06-14)
 
