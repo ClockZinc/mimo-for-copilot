@@ -3,7 +3,7 @@
   "displayName": "MiMo for Copilot Chat",
   "description": "Use GPT relay/proxy providers, MiMo, DeepSeek, and OpenAI-compatible models in Copilot Chat. Vision, thinking mode, agent tools, multi-provider BYOK.",
   "icon": "resources/mimo.png",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "publisher": "clockzincbit",
   "license": "MIT",
   "repository": {
@@ -322,10 +322,7 @@
         },
         "mimo-copilot.hiddenModels": {
           "type": "array",
-          "default": [
-            "mimo-v2-pro",
-            "mimo-v2-flash"
-          ],
+          "default": [],
           "items": {
             "type": "string"
           },
@@ -344,10 +341,9 @@
         },
         "mimo-copilot.memory.recallModel": {
           "type": "string",
-          "default": "mimo-v2-pro",
+          "default": "deepseek-v4-pro",
           "enum": [
-            "mimo-v2-pro",
-            "mimo-v2-flash",
+            "deepseek-v4-pro",
             "mimo-v2.5",
             "mimo-v2.5-pro"
           ],
@@ -520,8 +516,6 @@
             "deepseek-v4-pro": "deepseek-v4-pro",
             "mimo-v2.5-pro": "mimo-v2.5-pro",
             "mimo-v2.5": "mimo-v2.5",
-            "mimo-v2-pro": "mimo-v2-pro",
-            "mimo-v2-flash": "mimo-v2-flash",
             "gpt-5.4": "gpt-5.4",
             "gpt-5.5": "gpt-5.5"
           },
@@ -543,14 +537,6 @@
             "mimo-v2.5": {
               "type": "string",
               "description": "%mimo-copilot.config.modelIdOverrides.mimo-v2.5.description%"
-            },
-            "mimo-v2-pro": {
-              "type": "string",
-              "description": "API model ID for MiMo V2 Pro"
-            },
-            "mimo-v2-flash": {
-              "type": "string",
-              "description": "API model ID for MiMo V2 Flash"
             },
             "gpt-5.4": {
               "type": "string",

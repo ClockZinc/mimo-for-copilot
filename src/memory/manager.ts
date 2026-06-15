@@ -3,19 +3,19 @@
  * 管理记忆的扫描、召回、注入、保存
  */
 
-import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { type MemoryEntry, type MemoryHeader, type RecallResult } from './types';
-import { getUserMemoryDir, getProjectMemoryDir, type RecallModelConfig, ENTRYPOINT_NAME, MAX_ENTRYPOINT_LINES } from './paths';
+import * as vscode from 'vscode';
 import { MODELS } from '../consts';
-import { scanMemoryFiles, memoryAge, memoryAgeDays, memoryWeight } from './scanner';
-import { findRelevantMemories, type RecallContext } from './recall';
-import { SessionMemory } from './sessionMemory';
+import { logger } from '../logger';
 import { AutoDream } from './autoDream';
 import { AutoExtract } from './autoExtract';
+import { ENTRYPOINT_NAME, getProjectMemoryDir, getUserMemoryDir, MAX_ENTRYPOINT_LINES, type RecallModelConfig } from './paths';
+import { findRelevantMemories, type RecallContext } from './recall';
+import { memoryAge, memoryAgeDays, memoryWeight, scanMemoryFiles } from './scanner';
+import { SessionMemory } from './sessionMemory';
 import { MemoryStats } from './stats';
-import { logger } from '../logger';
+import { type MemoryEntry, type MemoryHeader, type RecallResult } from './types';
 
 /**
  * 召回缓存 — 同一会话内相似查询复用结果
@@ -92,10 +92,10 @@ export class MemoryManager {
 		}
 
 		if (apiKey) {
-			// 从配置读取召回模型，默认用 mimo-v2-pro
+			// 从配置读取召回模型，默认用 DeepSeek V4 Pro
 			const config = vscode.workspace.getConfiguration('mimo-copilot');
-			const agentModel = MODELS.find(m => m.id === 'mimo-v2-pro');
-			const recallModel = config.get<string>('memory.recallModel', agentModel?.id ?? 'mimo-v2-pro');
+			const agentModel = MODELS.find(m => m.id === 'deepseek-v4-pro');
+			const recallModel = config.get<string>('memory.recallModel', agentModel?.id ?? 'deepseek-v4-pro');
 
 			this.recallConfig = {
 				model: recallModel,

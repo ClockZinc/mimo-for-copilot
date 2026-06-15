@@ -196,8 +196,6 @@ If a tool image remains too large and has to be removed, MiMo always emits a bol
 
 - MiMo V2.5 Pro
 - MiMo V2.5
-- MiMo V2 Pro
-- MiMo V2 Flash
 - DeepSeek V4 Pro
 - DeepSeek V4 Flash
 - GPT-5.4

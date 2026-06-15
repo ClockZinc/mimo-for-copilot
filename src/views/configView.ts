@@ -243,7 +243,7 @@ export class ConfigViewPanel {
 
 		const memorySettings = {
 			enabled: config.get<boolean>('agenticMemory', false),
-			recallModel: config.get<string>('memory.recallModel', 'mimo-v2-pro'),
+			recallModel: config.get<string>('memory.recallModel', 'deepseek-v4-pro'),
 			modelOptions: this.getMemoryRecallModelOptions(),
 		};
 		const compressionSettings = getToolOutputCompressionSettings();
@@ -316,7 +316,7 @@ export class ConfigViewPanel {
 	}
 
 	private getMemoryRecallModelOptions(): Array<{ id: string; name: string }> {
-		const preferredOrder = ['mimo-v2-pro', 'mimo-v2-flash', 'mimo-v2.5', 'mimo-v2.5-pro'];
+		const preferredOrder = ['deepseek-v4-pro', 'mimo-v2.5', 'mimo-v2.5-pro'];
 		const sortRank = new Map(preferredOrder.map((id, index) => [id, index]));
 		return MODELS
 			.filter((model) => preferredOrder.includes(model.id))
@@ -340,7 +340,7 @@ export class ConfigViewPanel {
 
 		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 		const previousEnabled = config.get<boolean>('agenticMemory', false);
-		const previousRecallModel = config.get<string>('memory.recallModel', 'mimo-v2-pro');
+		const previousRecallModel = config.get<string>('memory.recallModel', 'deepseek-v4-pro');
 
 		await config.update('agenticMemory', enabled, vscode.ConfigurationTarget.Global);
 		await config.update('memory.recallModel', recallModel, vscode.ConfigurationTarget.Global);

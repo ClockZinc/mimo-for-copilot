@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [1.2.1](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.2.0...v1.2.1) (2026-06-15)
+
+### Features
+
+* remove MiMo V2 Pro and MiMo V2 Flash from the built-in default model set
+* use DeepSeek V4 Pro as the default memory recall model and expose it in memory model options
+
 ## [1.2.0](https://github.com/ClockZinc/mimo-for-copilot/compare/v1.1.7...v1.2.0) (2026-06-15)
 
 ### Features

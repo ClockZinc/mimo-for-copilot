@@ -16,7 +16,7 @@
   "mimo-copilot.command.showMemoryStats": "MiMo: Show Memory Statistics",
   "mimo-copilot.config.agenticMemory.description": "Enable agentic memory system. Injects relevant memories from previous conversations using a lightweight agent model.",
   "mimo-copilot.config.memory.recallModel": "Memory Recall Model",
-  "mimo-copilot.config.memory.recallModel.description": "Lightweight model used for memory recall (default: mimo-v2-pro).",
+  "mimo-copilot.config.memory.recallModel.description": "Model used for memory recall (default: deepseek-v4-pro).",
   "mimo-copilot.config.memory.dreamIntervalHours.description": "Hours between auto-dream memory optimization runs (default: 24).",
   "mimo-copilot.config.memory.dreamMinSessions.description": "Minimum sessions before auto-dream can trigger (default: 5).",
   "mimo-copilot.walkthrough.title": "MiMo for Copilot Chat",

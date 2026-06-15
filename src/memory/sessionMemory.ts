@@ -8,16 +8,16 @@
  * - 遇到的错误
  * - 关键决策
  *
- * 通过 mimo-v2-pro 定期更新（基于消息计数阈值）
+ * 通过配置的记忆模型定期更新（基于消息计数阈值）
  */
 
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import * as os from 'os';
 import * as crypto from 'crypto';
+import * as fs from 'fs/promises';
+import * as os from 'os';
+import * as path from 'path';
+import { logger } from '../logger';
 import type { RecallModelConfig } from './paths';
 import { createTimeoutSignal } from './paths';
-import { logger } from '../logger';
 
 /** 会话记忆模板（中文化 header，便于用户阅读） */
 const SESSION_MEMORY_TEMPLATE = `# 会话标题

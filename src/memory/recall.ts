@@ -1,22 +1,21 @@
 /**
  * 记忆召回引擎
- * 使用 mimo-v2-pro 做 LLM 侧查询（复刻 Claude Code 的 selectRelevantMemories）
+ * 使用配置的记忆模型做 LLM 侧查询（复刻 Claude Code 的 selectRelevantMemories）
  * 降级方案：API 不可用时回退到关键词匹配
  */
 
 import * as fs from 'fs/promises';
 import {
-	type MemoryEntry,
-	type MemoryHeader,
-	type RecallResult,
-} from './types';
-import {
-	type RecallModelConfig,
-	FRONTMATTER_MAX_LINES,
-	MAX_RECALL_RESULTS,
-	createTimeoutSignal,
+    type RecallModelConfig,
+    MAX_RECALL_RESULTS,
+    createTimeoutSignal
 } from './paths';
 import { formatMemoryManifest, scanMemoryFiles } from './scanner';
+import {
+    type MemoryEntry,
+    type MemoryHeader,
+    type RecallResult,
+} from './types';
 
 /** 召回 prompt（复刻 Claude Code 的 SELECT_MEMORIES_SYSTEM_PROMPT） */
 const SELECT_MEMORIES_SYSTEM_PROMPT = `You are selecting memories that will be useful as context for processing a user's query. You will be given the user's query and a list of available memory files with their filenames and descriptions.
@@ -100,7 +99,7 @@ export async function findRelevantMemories(
 }
 
 /**
- * LLM 侧查询：调用 mimo-v2-pro 选择相关记忆
+ * LLM 侧查询：调用配置的记忆模型选择相关记忆
  * 复刻 Claude Code 的 selectRelevantMemories，增强为支持对话上下文
  */
 async function selectRelevantMemoriesWithLLM(

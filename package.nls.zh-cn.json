@@ -16,7 +16,7 @@
   "mimo-copilot.command.showMemoryStats": "MiMo: 查看记忆统计",
   "mimo-copilot.config.agenticMemory.description": "启用 Agentic Memory 系统。使用轻量 Agent 模型从历史对话中注入相关记忆上下文。",
   "mimo-copilot.config.memory.recallModel": "记忆召回模型",
-  "mimo-copilot.config.memory.recallModel.description": "用于记忆召回的轻量模型（默认: mimo-v2-pro）。",
+  "mimo-copilot.config.memory.recallModel.description": "用于记忆召回的模型（默认: deepseek-v4-pro）。",
   "mimo-copilot.config.memory.dreamIntervalHours.description": "自动记忆整理的间隔小时数（默认: 24）。",
   "mimo-copilot.config.memory.dreamMinSessions.description": "触发自动记忆整理的最少会话数（默认: 5）。",
   "mimo-copilot.walkthrough.title": "MiMo for Copilot Chat",

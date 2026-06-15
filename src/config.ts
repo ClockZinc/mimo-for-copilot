@@ -48,8 +48,6 @@ function getToolImageOutputFormatSetting(config: vscode.WorkspaceConfiguration):
 const MODEL_PROVIDER_COMPATIBILITY: Record<string, string[]> = {
 	'mimo-v2.5-pro': ['mimo', 'mimo-tp'],
 	'mimo-v2.5': ['mimo', 'mimo-tp'],
-	'mimo-v2-pro': ['mimo', 'mimo-tp'],
-	'mimo-v2-flash': ['mimo'],
 };
 
 export function getProviderApiMode(provider: Pick<ProviderDefinition, 'apiMode'> | undefined): ProviderApiMode {
