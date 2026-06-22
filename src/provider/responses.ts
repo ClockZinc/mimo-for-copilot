@@ -36,6 +36,7 @@ type ResponsesModelConfigurationOptions = vscode.ProvideLanguageModelChatRespons
 type HandleResponsesChatRequestArgs = {
 	baseUrl: string;
 	apiKey: string;
+	usePreviousResponseId: boolean;
 	modelInfo: vscode.LanguageModelChatInformation;
 	modelDef?: ModelDefinition;
 	userModelDef?: UserModelConfig;
@@ -893,7 +894,8 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 		deltaMessages = await convertResponsesMessages(args.messages.slice(-1));
 	}
 	const canUsePreviousResponseId =
-		!!conversationState.previousResponseId
+		args.usePreviousResponseId
+		&& !!conversationState.previousResponseId
 		&& !args.unsupportedPreviousResponseIdBaseUrls.has(normalizedBaseUrl)
 		&& !!deltaMessages
 		&& deltaMessages.input.length > 0;
@@ -1120,8 +1122,7 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 			canUsePreviousResponseId
 			&& error instanceof ResponsesHttpError
 			&& error.status >= 400
-			&& error.status < 500
-			&& error.status !== 429;
+			&& error.status < 500;
 
 		if (!shouldRetryWithoutPreviousResponseId) {
 			throw error;
@@ -1558,6 +1559,12 @@ class ResponsesClient {
 					logger.warn(
 						`[Responses] stream.no_feedback.partial timeoutMs=${noFeedbackReconnectMs}; finalizing current stream without replay`,
 					);
+					callbacks.onConnectionStatus?.({
+						state: 'error',
+						attempt: noFeedbackAttempt,
+						maxAttempts: maxNoFeedbackAttempts,
+						message: 'no feedback after progress',
+					});
 					endResponsesDeltaLog(activeStreamState);
 					reportEndThinking(activeStreamState, callbacks);
 					flushPendingToolCalls(activeStreamState, callbacks);

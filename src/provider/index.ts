@@ -275,15 +275,24 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		// Only the actual global key (mimo-copilot.apiKey) counts as global fallback
 		const hasGlobalKey = !!(await this.authManager.getApiKey());
 		const hasDeepSeekKey = !!providerKeyStatus.get('deepseek') || hasGlobalKey;
-		const responsesProvider = getProviderById('openai-responses');
 		const hasResponsesKey = !!providerKeyStatus.get('openai-responses');
-		const hasResponsesConfigured = !!responsesProvider?.baseUrl?.trim() && hasResponsesKey;
+		/**
+		 * A responses-family model (gpt-5.x) can be served by any provider whose
+		 * id is `openai-responses` — whether the user set it to `responses` or
+		 * `chat-completions` mode (relay / proxy scenario).
+		 */
+		const hasOpenaiProviderConfigured = (() => {
+			const p = getProviderById('openai-responses');
+			return !!p?.baseUrl?.trim()
+				&& (getProviderApiMode(p) === 'responses' || getProviderApiMode(p) === 'chat-completions')
+				&& hasResponsesKey;
+		})();
 		const hasAnyResponsesProvider = providers.some((provider) => {
 			const fullProvider = getProviderById(provider.id);
 			return !!fullProvider?.baseUrl?.trim()
 				&& getProviderApiMode(fullProvider) === 'responses'
 				&& !!providerKeyStatus.get(provider.id);
-		}) || hasResponsesConfigured;
+		}) || hasOpenaiProviderConfigured;
 
 		function hasKeyForModel(modelId: string, providerId: string | undefined): boolean {
 			if (!providerId || providerId === 'default') {
@@ -291,6 +300,11 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 			}
 			for (const candidateProviderId of getCandidateProvidersForModel(modelId, providerId)) {
 				if (providerKeyStatus.get(candidateProviderId)) { return true; }
+			}
+			// Do NOT fall back to the global (DeepSeek) key for openai-responses —
+			// it needs its own per-provider key (relay / proxy scenario).
+			if (providerId === 'openai-responses') {
+				return false;
 			}
 			// Fall back to global key only
 			return hasGlobalKey;
@@ -327,7 +341,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		const userInfos: ModelPickerChatInformation[] = userModels
 			.filter((m) => !hiddenModels.includes(m.key || m.id) && !MODELS.some((bm) => bm.id === (m.key || m.id)))
 			.filter((m) => m.providerId !== 'deepseek' || hasDeepSeekKey)
-			.filter((m) => m.providerId !== 'openai-responses' || hasResponsesConfigured)
+			.filter((m) => m.providerId !== 'openai-responses' || hasOpenaiProviderConfigured)
 			.map((m) => {
 				const hasKey = hasKeyForModel(m.id, m.providerId);
 				const providerApiMode = m.providerId ? getProviderById(m.providerId)?.apiMode : undefined;
@@ -406,7 +420,9 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 		}
 		logger.debug(`[Request] providerKeyStatus: ${JSON.stringify(Object.fromEntries(providerKeyStatus))}`);
 		const { baseUrl, providerId } = resolveProviderForModel(modelProviderId, providerKeyStatus, resolvedModelId);
-		const isResponses = getProviderApiMode(getProviderById(providerId)) === 'responses';
+		const resolvedProvider = getProviderById(providerId);
+		const isResponses = getProviderApiMode(resolvedProvider) === 'responses';
+		const usePreviousResponseId = resolvedProvider?.usePreviousResponseId === true;
 		logger.debug(`[Request] model=${modelInfo.id} rawModel=${resolvedModelId} inputProvider=${modelProviderId ?? '(none)'} → resolved provider=${providerId} baseUrl=${baseUrl}`);
 		const apiKey = await this.authManager.getApiKeyForProvider(providerId);
 		logger.debug(`[Request] apiKey found for provider=${providerId}: ${apiKey ? 'YES' : 'NO'}`);
@@ -440,6 +456,7 @@ export class DeepSeekChatProvider implements vscode.LanguageModelChatProvider {
 				return await handleResponsesChatRequest({
 					baseUrl,
 					apiKey,
+					usePreviousResponseId,
 					modelInfo,
 					modelDef,
 					userModelDef,

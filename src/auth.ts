@@ -33,7 +33,10 @@ export class AuthManager {
 
 	/**
 	 * Get API key for a specific provider.
-	 * Falls back to the global API key if no provider-specific key is found.
+	 * Falls back to the global API key **only** for the `deepseek` / default
+	 * provider. Other providers (mimo, mimo-tp, openai-responses) must have
+	 * their own per-provider key so that a DeepSeek key is never accidentally
+	 * sent to a relay, MiMo, or OpenAI endpoint.
 	 */
 	async getApiKeyForProvider(providerId: string | undefined): Promise<string | undefined> {
 		if (providerId && providerId !== 'default') {
@@ -42,7 +45,11 @@ export class AuthManager {
 				return providerKey;
 			}
 		}
-		return this.getApiKey();
+		// Only fall back to the global key for deepseek / default.
+		if (!providerId || providerId === 'default' || providerId === 'deepseek') {
+			return this.getApiKey();
+		}
+		return undefined;
 	}
 
 	/**

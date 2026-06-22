@@ -263,6 +263,8 @@ export interface ProviderDefinition {
 	baseUrl: string;
 	/** Provider protocol / endpoint style. */
 	apiMode?: ProviderApiMode;
+	/** Whether Responses API requests may use `previous_response_id` for stateful continuation. Defaults to false. */
+	usePreviousResponseId?: boolean;
 }
 
 /** A user-configured model entry (extends the built-in ModelDefinition with user overrides). */

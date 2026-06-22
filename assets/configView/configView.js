@@ -311,13 +311,16 @@
 		for (var i = 0; i < providers.length; i++) {
 			var p = providers[i];
 			var hasKey = !!providerKeys[p.id];
+			var previousResponseIdMeta = p.apiMode === 'responses'
+				? ' · ' + (p.usePreviousResponseId === true ? strings.providersPreviousResponseIdOn : strings.providersPreviousResponseIdOff)
+				: '';
 			var card = document.createElement('div');
 			card.className = 'card provider-card';
 			card.dataset.id = p.id;
 			card.innerHTML =
 				'<div class="card-info">' +
 					'<div class="name">' + esc(p.name) + ' <span style="color:var(--vscode-descriptionForeground);font-size:11px">(' + esc(p.id) + ')</span></div>' +
-					'<div class="meta">' + esc(p.baseUrl) + (hasKey ? strings.providersApiKeyPresent : strings.providersApiKeyMissing) + '</div>' +
+					'<div class="meta">' + esc(p.baseUrl) + (hasKey ? strings.providersApiKeyPresent : strings.providersApiKeyMissing) + esc(previousResponseIdMeta) + '</div>' +
 				'</div>' +
 				'<div class="card-actions">' +
 					'<button class="btn secondary small edit-p" data-id="' + esc(p.id) + '">' + esc(strings.providersEditButton) + '</button>' +
@@ -431,6 +434,7 @@
 			document.getElementById('pf-id').disabled = true;
 			document.getElementById('pf-name').value = p ? p.name : '';
 			document.getElementById('pf-apiMode').value = p && p.apiMode === 'responses' ? 'responses' : 'chat-completions';
+			document.getElementById('pf-usePreviousResponseId').checked = !!(p && p.usePreviousResponseId === true);
 			document.getElementById('pf-baseUrl').value = p ? p.baseUrl : '';
 			apiKeyInput.value = '';
 			apiKeyInput.placeholder = providerKeys[providerId]
@@ -442,12 +446,22 @@
 			document.getElementById('pf-id').disabled = false;
 			document.getElementById('pf-name').value = '';
 			document.getElementById('pf-apiMode').value = 'chat-completions';
+			document.getElementById('pf-usePreviousResponseId').checked = false;
 			document.getElementById('pf-baseUrl').value = '';
 			apiKeyInput.value = '';
 			apiKeyInput.placeholder = strings.providersFormApiKeyPlaceholder;
 		}
+		updateProviderModeFields();
 		renderProviderTips(providerId);
 	}
+
+	function updateProviderModeFields() {
+		var apiMode = document.getElementById('pf-apiMode').value;
+		var field = document.getElementById('pf-usePreviousResponseId-field');
+		field.style.display = apiMode === 'responses' ? '' : 'none';
+	}
+
+	document.getElementById('pf-apiMode').addEventListener('change', updateProviderModeFields);
 
 	function renderProviderTips(providerId) {
 		var p = providerId ? providers.find(function (x) { return x.id === providerId; }) : null;
@@ -486,6 +500,7 @@
 				'Responses 类接口通常用于 GPT-5 / OpenAI Responses 兼容服务。',
 				'Base URL 填服务商给的根地址；很多 GPT 中转站需要填到 /v1。',
 				'不要手动追加 /responses，插件会自动使用 Responses 路径。',
+				'如果第二次请求报错，可关闭“Responses 使用 previous_response_id”。',
 				'如果请求报 404，优先检查 URL 末尾是否应该加 /v1。',
 			];
 		} else {
@@ -503,6 +518,7 @@
 		var id = document.getElementById('pf-id').value.trim();
 		var name = document.getElementById('pf-name').value.trim();
 		var apiMode = document.getElementById('pf-apiMode').value;
+		var usePreviousResponseId = apiMode === 'responses' && document.getElementById('pf-usePreviousResponseId').checked;
 		var baseUrl = document.getElementById('pf-baseUrl').value.trim();
 		var apiKey = document.getElementById('pf-apiKey').value;
 		if (!id) { alert(strings.providersIdRequired); return; }
@@ -510,7 +526,7 @@
 		if (!baseUrl) { alert(strings.providersBaseUrlRequired); return; }
 		post({
 			type: editingProviderId ? 'updateProvider' : 'addProvider',
-			provider: { id: id, name: name, baseUrl: baseUrl, apiMode: apiMode === 'responses' ? 'responses' : undefined },
+			provider: { id: id, name: name, baseUrl: baseUrl, apiMode: apiMode === 'responses' ? 'responses' : undefined, usePreviousResponseId: usePreviousResponseId },
 			apiKey: apiKey || undefined,
 		});
 		hideProviderForm();

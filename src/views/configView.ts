@@ -276,6 +276,8 @@ export class ConfigViewPanel {
 			providersUseAsModel: t('configView.providers.useAsModel'),
 			providersDeleteConfirm: t('configView.providers.deleteConfirm'),
 			providersFetchFailed: t('configView.providers.fetchFailed'),
+			providersPreviousResponseIdOn: t('configView.providers.previousResponseIdOn'),
+			providersPreviousResponseIdOff: t('configView.providers.previousResponseIdOff'),
 			modelsEmpty: t('configView.models.empty'),
 			modelsBadgeBuiltin: t('configView.models.badgeBuiltin'),
 			modelsBadgeHidden: t('configView.models.badgeHidden'),
@@ -310,6 +312,8 @@ export class ConfigViewPanel {
 			modelsFormDefaultVerbosityLabel: t('configView.models.form.defaultVerbosityLabel'),
 			apiModeChatCompletions: t('configView.providers.form.apiModeChatCompletions'),
 			apiModeResponses: t('configView.providers.form.apiModeResponses'),
+			providersFormUsePreviousResponseIdLabel: t('configView.providers.form.usePreviousResponseIdLabel'),
+			providersFormUsePreviousResponseIdHint: t('configView.providers.form.usePreviousResponseIdHint'),
 			modelsHideConfirm: t('configView.models.hideConfirm'),
 			modelsDeleteConfirm: t('configView.models.deleteConfirm'),
 		};
@@ -598,6 +602,7 @@ export class ConfigViewPanel {
 <div class="field"><label for="pf-id">${t('configView.providers.form.idLabel')}</label><input id="pf-id" type="text" placeholder="${t('configView.providers.form.idPlaceholder')}"/><div class="hint">${t('configView.providers.form.idHint')}</div></div>
 <div class="field"><label for="pf-name">${t('configView.providers.form.nameLabel')}</label><input id="pf-name" type="text" placeholder="DeepSeek"/></div>
 <div class="field"><label for="pf-apiMode">${t('configView.providers.form.apiModeLabel')}</label><select id="pf-apiMode"><option value="chat-completions">${t('configView.providers.form.apiModeChatCompletions')}</option><option value="responses">${t('configView.providers.form.apiModeResponses')}</option></select><div class="hint">${t('configView.providers.form.apiModeHint')}</div></div>
+<div class="field" id="pf-usePreviousResponseId-field" style="display:none"><label><input type="checkbox" id="pf-usePreviousResponseId"/> ${t('configView.providers.form.usePreviousResponseIdLabel')}</label><div class="hint">${t('configView.providers.form.usePreviousResponseIdHint')}</div></div>
 <div class="field"><label for="pf-baseUrl">${t('configView.providers.form.baseUrlLabel')}</label><input id="pf-baseUrl" type="text" placeholder="https://api.deepseek.com"/><div class="hint">${t('configView.providers.form.baseUrlHint')}</div></div>
 <div class="field"><label for="pf-apiKey">${t('configView.providers.form.apiKeyLabel')}</label><div class="input-with-toggle"><input id="pf-apiKey" type="password" placeholder="${t('configView.providers.form.apiKeyPlaceholder')}"/><button id="pf-apiKey-toggle" class="btn secondary small toggle-eye" title="${t('configView.providers.form.apiKeyToggle')}">👁</button></div><div class="hint">${t('configView.providers.form.apiKeyHint')}</div></div>
 <div id="providerTips" class="provider-tips"></div>
