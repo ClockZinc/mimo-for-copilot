@@ -1004,7 +1004,23 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 	): Promise<void> => {
 		const outputRateSessionId = startOutputTokenRate(4);
 		let finalCompletionTokens: number | undefined;
+		let settled = false;
 		return new Promise<void>((resolve, reject) => {
+			const settleDone = () => {
+				if (settled) {
+					return;
+				}
+				settled = true;
+				reportThinkingChunk('');
+				resolve();
+			};
+			const settleError = (error: Error) => {
+				if (settled) {
+					return;
+				}
+				settled = true;
+				reject(error);
+			};
 			client.stream(
 				request,
 				{
@@ -1038,13 +1054,10 @@ export async function handleResponsesChatRequest(args: HandleResponsesChatReques
 						setOutputTokenRateConnectionStatus(outputRateSessionId, status);
 					},
 					onError: (error: Error) => {
-						stopOutputTokenRate(outputRateSessionId, finalCompletionTokens);
-						reject(error);
+						settleError(error);
 					},
 					onDone: () => {
-						reportThinkingChunk('');
-						stopOutputTokenRate(outputRateSessionId, finalCompletionTokens);
-						resolve();
+						settleDone();
 					},
 					onUsage: (usage) => {
 						finalCompletionTokens = usage.completion_tokens;
@@ -1415,6 +1428,47 @@ function readSseChunkWithNoFeedbackTimeout(
 	return withNoFeedbackTimeout(reader.read(), controller, timeoutMs);
 }
 
+interface ResponsesStreamLifecycle {
+	finish: (reason: string) => void;
+	fail: (error: Error, reason: string) => void;
+	markReset: (attempt: number, maxAttempts: number, message: string) => void;
+}
+
+function createResponsesStreamLifecycle(callbacks: StreamCallbacks): ResponsesStreamLifecycle {
+	let finalized = false;
+	return {
+		finish: (reason: string) => {
+			if (finalized) {
+				logger.debug(`[Responses] stream.finish.skip reason=${reason}`);
+				return;
+			}
+			finalized = true;
+			logger.debug(`[Responses] stream.finish reason=${reason}`);
+			callbacks.onConnectionStatus?.({ state: 'clear' });
+			callbacks.onDone();
+		},
+		fail: (error: Error, reason: string) => {
+			if (finalized) {
+				logger.debug(`[Responses] stream.fail.skip reason=${reason}`);
+				return;
+			}
+			finalized = true;
+			logger.warn(`[Responses] stream.fail reason=${reason}`, error);
+			callbacks.onError(error);
+		},
+		markReset: (attempt: number, maxAttempts: number, message: string) => {
+			logger.warn(`[Responses] stream.reset attempt=${attempt}/${maxAttempts} message=${message}`);
+			callbacks.onConnectionStatus?.({
+				state: 'reset',
+				attempt,
+				maxAttempts,
+				startedAt: Date.now(),
+				message,
+			});
+		},
+	};
+}
+
 class ResponsesClient {
 	constructor(
 		private readonly baseUrl: string,
@@ -1426,6 +1480,7 @@ class ResponsesClient {
 		callbacks: StreamCallbacks,
 		cancellationToken?: CancellationToken,
 		noFeedbackAttempt = 1,
+		lifecycle = createResponsesStreamLifecycle(callbacks),
 	): Promise<void> {
 		let controller = new AbortController();
 		let emittedResponsePart = false;
@@ -1437,6 +1492,7 @@ class ResponsesClient {
 		const cancelListener = cancellationToken?.onCancellationRequested(() => {
 			controller.abort();
 		});
+		const { finish, fail, markReset } = lifecycle;
 
 		try {
 			logger.debug(
@@ -1470,7 +1526,7 @@ class ResponsesClient {
 						const state = createEmptyResponsesStreamState(true);
 						emitInvisibleCompletionSentinelIfNeeded(state, callbacks, 'http_error_json_fallback_no_visible_output');
 					}
-					callbacks.onDone();
+					finish('http_error_json_fallback_done');
 					return;
 				}
 				throw new ResponsesHttpError(response.status, errorText);
@@ -1489,7 +1545,7 @@ class ResponsesClient {
 					emitInvisibleCompletionSentinelIfNeeded(state, callbacks, 'content_type_json_fallback_no_visible_output');
 				}
 				logResponsesSummary(state);
-				callbacks.onDone();
+				finish('content_type_json_fallback_done');
 				return;
 			}
 
@@ -1540,7 +1596,7 @@ class ResponsesClient {
 						logResponsesSummary(state);
 						flushPendingToolCalls(state, callbacks);
 						emitInvisibleCompletionSentinelIfNeeded(state, callbacks, 'stream_done_no_visible_output');
-						callbacks.onDone();
+						finish('done_marker');
 						return;
 					}
 
@@ -1597,10 +1653,10 @@ class ResponsesClient {
 					logger.warn('[Responses] JSON fallback also returned no visible output; emitting invisible completion sentinel.');
 					emitInvisibleCompletionSentinelIfNeeded(state, callbacks, 'json_fallback_no_visible_output');
 				}
-				callbacks.onDone();
+				finish('empty_stream_json_fallback_done');
 				return;
 			}
-			callbacks.onDone();
+			finish(state.receivedCompletedEvent ? 'completed_event' : 'reader_done');
 		} catch (error) {
 			if (error instanceof ResponsesNoFeedbackTimeoutError) {
 				if (activeStreamState && hasResponsesStreamProgress(activeStreamState)) {
@@ -1611,8 +1667,7 @@ class ResponsesClient {
 					reportEndThinking(activeStreamState, callbacks);
 					flushPendingToolCalls(activeStreamState, callbacks);
 					emitInvisibleCompletionSentinelIfNeeded(activeStreamState, callbacks, 'partial_no_feedback_finalized');
-					callbacks.onConnectionStatus?.({ state: 'clear' });
-					callbacks.onDone();
+					finish('partial_no_feedback_finalized');
 					return;
 				}
 				if (noFeedbackAttempt < maxNoFeedbackAttempts) {
@@ -1621,14 +1676,8 @@ class ResponsesClient {
 						`[Responses] stream.no_feedback timeoutMs=${noFeedbackReconnectMs}`
 						+ ` reconnect=${nextAttempt}/${maxNoFeedbackAttempts}`,
 					);
-					callbacks.onConnectionStatus?.({
-						state: 'reset',
-						attempt: noFeedbackAttempt,
-						maxAttempts: maxNoFeedbackAttempts,
-						startedAt: Date.now(),
-						message: 'no feedback',
-					});
-					await this.stream(request, callbacks, cancellationToken, nextAttempt);
+					markReset(noFeedbackAttempt, maxNoFeedbackAttempts, 'no feedback');
+					await this.stream(request, callbacks, cancellationToken, nextAttempt, lifecycle);
 					return;
 				}
 				logger.error(`[Responses] stream.no_feedback.failed attempts=${maxNoFeedbackAttempts}`);
@@ -1638,13 +1687,13 @@ class ResponsesClient {
 					maxAttempts: maxNoFeedbackAttempts,
 					message: 'no feedback',
 				});
-				callbacks.onError(new Error(`Responses stream connection error: no feedback for ${Math.round(noFeedbackReconnectMs / 1000)}s`));
+				fail(new Error(`Responses stream connection error: no feedback for ${Math.round(noFeedbackReconnectMs / 1000)}s`), 'no_feedback_failed');
 				return;
 			}
 
 			if (error instanceof Error && error.name === 'AbortError') {
 				reportEndThinking(undefined, callbacks);
-				callbacks.onDone();
+				finish(cancellationToken?.isCancellationRequested ? 'user_cancelled' : 'abort_error');
 				return;
 			}
 
@@ -1667,15 +1716,15 @@ class ResponsesClient {
 						const state = createEmptyResponsesStreamState(true);
 						emitInvisibleCompletionSentinelIfNeeded(state, callbacks, 'stream_error_json_fallback_no_visible_output');
 					}
-					callbacks.onDone();
+					finish('stream_error_json_fallback_done');
 					return;
 				} catch (fallbackError) {
-					callbacks.onError(fallbackError instanceof Error ? fallbackError : new Error(String(fallbackError)));
+					fail(fallbackError instanceof Error ? fallbackError : new Error(String(fallbackError)), 'stream_error_json_fallback_failed');
 					return;
 				}
 			}
 
-			callbacks.onError(error instanceof Error ? error : new Error(String(error)));
+			fail(error instanceof Error ? error : new Error(String(error)), 'stream_error');
 		} finally {
 			cancelListener?.dispose();
 		}
