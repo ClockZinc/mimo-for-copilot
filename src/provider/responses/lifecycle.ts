@@ -1,5 +1,5 @@
-import type { StreamCallbacks } from '../../types';
 import { logger } from '../../logger';
+import type { StreamCallbacks } from '../../types';
 
 export interface ResponsesStreamLifecycle {
 	finish: (reason: string) => void;

@@ -7,7 +7,6 @@ import { getBaseModelId } from '../consts';
 import { t } from '../i18n';
 import { logger } from '../logger';
 import { recordOutputTokenText, setOutputTokenRateConnectionStatus, startOutputTokenRate, stopOutputTokenRate, updateStatusBarFromUsage } from '../statusBar';
-import { createResponsesStreamLifecycle, type ResponsesStreamLifecycle } from './responses/lifecycle';
 import type {
     DeepSeekToolCall,
     ModelDefinition,
@@ -21,6 +20,8 @@ import type {
     UserModelConfig
 } from '../types';
 import { AUTOPILOT_COMPAT_PROMPT } from './convert';
+import { createResponsesStreamLifecycle } from './responses/lifecycle';
+import { appendResponsesDeltaLog, createEmptyResponsesStreamState, emitInvisibleCompletionSentinelIfNeeded, endResponsesDeltaLog, endResponsesDeltaLogUnless, hasResponsesStreamProgress, logResponsesSummary, type ResponsesStreamState } from './responses/streamState';
 
 type ResponsesConfigurationSchema = { readonly properties: Record<string, unknown> };
 type ResponsesVerbosity = 'low' | 'medium' | 'high';
@@ -48,29 +49,6 @@ type HandleResponsesChatRequestArgs = {
 	reportedCompressionNotices: Set<string>;
 	updateCharsPerToken: (observedRatio: number) => void;
 };
-
-type ResponsesStreamState = {
-	pendingToolCalls: Map<number, DeepSeekToolCall>;
-	emittedTextKeys: Set<string>;
-	emittedReasoningKeys: Set<string>;
-	emittedToolCallKeys: Set<string>;
-	currentThinkingId: string | null;
-	thinkingBuffer: string;
-	thinkingFlushTimer: NodeJS.Timeout | null;
-	hasEmittedThinking: boolean;
-	hasEmittedAssistantText: boolean;
-	emittedBeginToolCallsHint: boolean;
-	reasoningEventCount: number;
-	textEventCount: number;
-	toolEventCount: number;
-	receivedCompletedEvent: boolean;
-	unknownEventTypes: Set<string>;
-	usedNonStreamFallback: boolean;
-	activeDeltaLog: 'reasoning' | 'text' | 'tool' | null;
-	emittedInvisibleCompletionSentinel: boolean;
-};
-
-const INVISIBLE_COMPLETION_SENTINEL = '\u2060';
 
 type ResponsesStatefulMarkerLocation = {
 	marker: string;
@@ -2132,89 +2110,6 @@ class ResponsesClient {
 	}
 }
 
-function logResponsesSummary(state: ResponsesStreamState): void {
-	logger.debug(
-		`[Responses] summary reasoningEvents=${state.reasoningEventCount}`
-		+ ` textEvents=${state.textEventCount}`
-		+ ` toolEvents=${state.toolEventCount}`
-		+ ` completedEvent=${state.receivedCompletedEvent ? 'yes' : 'no'}`
-		+ ` usedNonStreamFallback=${state.usedNonStreamFallback ? 'yes' : 'no'}`
-		+ ` unknownEvents=${state.unknownEventTypes.size > 0 ? [...state.unknownEventTypes].join('|') : 'none'}`,
-	);
-}
-
-function createEmptyResponsesStreamState(usedNonStreamFallback: boolean): ResponsesStreamState {
-	return {
-		pendingToolCalls: new Map<number, DeepSeekToolCall>(),
-		emittedTextKeys: new Set<string>(),
-		emittedReasoningKeys: new Set<string>(),
-		emittedToolCallKeys: new Set<string>(),
-		currentThinkingId: null,
-		thinkingBuffer: '',
-		thinkingFlushTimer: null,
-		hasEmittedThinking: false,
-		hasEmittedAssistantText: false,
-		emittedBeginToolCallsHint: false,
-		reasoningEventCount: 0,
-		textEventCount: 0,
-		toolEventCount: 0,
-		receivedCompletedEvent: false,
-		unknownEventTypes: new Set<string>(),
-		usedNonStreamFallback,
-		activeDeltaLog: null,
-		emittedInvisibleCompletionSentinel: false,
-	};
-}
-
-function appendResponsesDeltaLog(
-	state: ResponsesStreamState,
-	kind: 'reasoning' | 'text' | 'tool',
-	delta: string,
-): void {
-	if (!delta) {
-		return;
-	}
-	if (state.activeDeltaLog !== kind) {
-		endResponsesDeltaLog(state);
-		logger.debugAppendStart(`[Responses] ${kind}.stream `);
-		state.activeDeltaLog = kind;
-	}
-	logger.append(delta);
-}
-
-function emitInvisibleCompletionSentinelIfNeeded(
-	state: ResponsesStreamState,
-	callbacks: StreamCallbacks,
-	reason: string,
-): void {
-	const hasVisibleOutput = state.textEventCount > 0
-		|| state.reasoningEventCount > 0
-		|| state.toolEventCount > 0;
-	if (hasVisibleOutput || state.emittedInvisibleCompletionSentinel) {
-		return;
-	}
-	state.emittedInvisibleCompletionSentinel = true;
-	logger.debug(`[Responses] sentinel.invisible reason=${reason}`);
-	callbacks.onContent(INVISIBLE_COMPLETION_SENTINEL);
-}
-
-function endResponsesDeltaLog(state: ResponsesStreamState): void {
-	if (!state.activeDeltaLog) {
-		return;
-	}
-	logger.endLine();
-	state.activeDeltaLog = null;
-}
-
-function endResponsesDeltaLogUnless(
-	state: ResponsesStreamState,
-	keepKind: 'reasoning' | 'text' | 'tool',
-): void {
-	if (state.activeDeltaLog && state.activeDeltaLog !== keepKind) {
-		endResponsesDeltaLog(state);
-	}
-}
-
 function logCompletedResponseSummary(responseObject: Record<string, unknown>): void {
 	const responseId = typeof responseObject.id === 'string' ? responseObject.id : 'n/a';
 	const status = String(responseObject.status ?? 'unknown');
@@ -2425,15 +2320,6 @@ function flushPendingToolCalls(state: ResponsesStreamState, callbacks: StreamCal
 	for (const outputIndex of Array.from(state.pendingToolCalls.keys())) {
 		flushPendingToolCall(outputIndex, state, callbacks);
 	}
-}
-
-function hasResponsesStreamProgress(state: ResponsesStreamState): boolean {
-	return state.textEventCount > 0
-		|| state.reasoningEventCount > 0
-		|| state.toolEventCount > 0
-		|| state.pendingToolCalls.size > 0
-		|| state.hasEmittedAssistantText
-		|| state.hasEmittedThinking;
 }
 
 function generateThinkingId(): string {
