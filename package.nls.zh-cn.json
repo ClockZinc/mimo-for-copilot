@@ -57,6 +57,7 @@
   "mimo-copilot.config.responses.maxNoFeedbackReconnectAttempts.description": "无反馈重连失败的最大次数，超过后显示 connect Error。",
   "mimo-copilot.config.responses.outputRateTooltipRefreshSeconds.description": "Output Rate 状态栏 Tooltip 的刷新间隔秒数。状态栏文字可以更快刷新，Tooltip 较慢刷新以避免闪烁。",
   "mimo-copilot.config.outputRate.chartStyle.description": "Output Rate 曲线的视觉样式。Classic 保持当前分段曲线，Neon 增加发光效果，Hybrid 在曲线背后增加轻量速率柱。",
+  "mimo-copilot.config.outputRate.historyMinutes.description": "Output Rate 图表保留并显示的样本分钟数。",
   "mimo-copilot.config.visionModel.description": "用于描述图片的视觉代理模型 ID，留空则自动检测。",
   "mimo-copilot.config.visionPrompt.description": "在将图片附件转发给模型之前，发送给视觉代理模型的提示词。"
 }

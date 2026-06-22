@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { getOutputRateChartStyle, getOutputRateTooltipRefreshSeconds, getResponsesMaxNoFeedbackReconnectAttempts, getResponsesNoFeedbackReconnectEnabled, getResponsesNoFeedbackReconnectSeconds, getWaitingForResponseThresholdSeconds } from './config';
+import { getOutputRateChartStyle, getOutputRateHistoryMinutes, getOutputRateTooltipRefreshSeconds, getResponsesMaxNoFeedbackReconnectAttempts, getResponsesNoFeedbackReconnectEnabled, getResponsesNoFeedbackReconnectSeconds, getWaitingForResponseThresholdSeconds } from './config';
 import { CONFIG_SECTION } from './consts';
 import { t } from './i18n';
 
@@ -37,7 +37,6 @@ let outputRateTools = new Map<string, OutputRateToolState>();
 
 const OUTPUT_RATE_UPDATE_MS = 100;
 const OUTPUT_RATE_IDLE_RESET_MS = 2_000;
-const OUTPUT_RATE_HISTORY_MS = 3 * 60 * 1000;
 export const OPEN_OUTPUT_RATE_PANEL_COMMAND = 'mimo-copilot.openOutputRatePanel';
 
 let outputRateTooltipLastUpdatedAt = 0;
@@ -85,6 +84,7 @@ interface ResponsesRuntimeSettings {
 	maxNoFeedbackReconnectAttempts: number;
 	outputRateTooltipRefreshSeconds: number;
 	outputRateChartStyle: 'classic' | 'neon' | 'hybrid';
+	outputRateHistoryMinutes: number;
 }
 
 export interface TokenCompressionDetails {
@@ -587,7 +587,7 @@ function createOutputRateQuickPickItems(snapshot: OutputRateSnapshot | undefined
 		{ label: `$(dashboard) Current  ${snapshot.currentRate.toFixed(2)} tok/s`, detail: `最近 ${(snapshot.updateMs / 1000).toFixed(2)}s 采样窗口，按真实时间差计算。` },
 		{ label: `$(watch) First token  ${firstToken}`, detail: '从发出请求到收到首个 token。' },
 		{ label: `$(history) Elapsed  ${snapshot.elapsedSeconds.toFixed(2)}s`, detail: snapshot.active ? 'streaming...' : 'final' },
-		{ label: `$(graph-line) Last 3 min  ${sparkline}`, detail: '轻量浮层只显示 sparkline；详细 SVG 面板已不再默认打开。' },
+		{ label: `$(graph-line) Last ${getOutputRateHistoryMinutes()} min  ${sparkline}`, detail: '轻量浮层只显示 sparkline；详细 SVG 面板已不再默认打开。' },
 		{ label: `$(symbol-keyword) Rate source  ${outputTokenKind}`, detail: `${snapshot.charsPerToken.toFixed(2)} chars/token used for live estimate.` },
 	];
 }
@@ -691,7 +691,13 @@ class OutputRatePanel {
 				: 'classic',
 			vscode.ConfigurationTarget.Global,
 		);
+		await config.update(
+			'outputRate.historyMinutes',
+			clamp(settings.outputRateHistoryMinutes, 3, 1, 1440),
+			vscode.ConfigurationTarget.Global,
+		);
 		outputRateWaitingThresholdMs = getWaitingForResponseThresholdSeconds() * 1000;
+		pruneOutputRateSamples(Date.now());
 		vscode.window.showInformationMessage(t('configView.responses.saved'));
 		this.postResponsesRuntimeSettings();
 	}
@@ -716,6 +722,7 @@ class OutputRatePanel {
 	.field label { display: block; font-size: 12px; opacity: .82; margin-bottom: 5px; }
 	.field input, .field select { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); padding: 6px 8px; }
 	.field input[type="checkbox"] { width: auto; }
+	.history-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 	.hint { opacity: .68; font-size: 12px; margin-top: 5px; line-height: 1.35; }
 	.actions { margin-top: 12px; }
 	button { color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 0; border-radius: 4px; padding: 6px 12px; cursor: pointer; }
@@ -734,6 +741,7 @@ class OutputRatePanel {
 	}
 	.chart { border: 1px solid var(--vscode-panel-border); border-radius: 12px; padding: 12px; background: color-mix(in srgb, var(--vscode-editor-background) 88%, var(--vscode-foreground) 12%); }
 	svg { width: 100%; height: 320px; display: block; overflow: visible; }
+	.plot-moving-layer { transition: transform 70ms linear; }
 	.axis { stroke: var(--vscode-panel-border); stroke-width: 1; }
 	.grid-line { stroke: var(--vscode-panel-border); stroke-width: 1; opacity: .35; }
 	.line { fill: none; stroke: var(--vscode-charts-blue); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
@@ -838,7 +846,7 @@ class OutputRatePanel {
 			<span class="legend-item"><span class="swatch state-error"></span>error</span>
 		</div>
 	</div>
-	<div class="footer" id="meta">Recent 3 minutes · average rate curve</div>
+	<div class="footer" id="meta">Recent history · average rate curve</div>
 	<div class="stats">
 		<div class="stats-title"><strong>Time / Token Breakdown</strong><span class="stats-controls"><label for="statsSort">Sort</label><select id="statsSort"><option value="time" selected>Time %</option><option value="tokens">Token %</option><option value="name">Name</option></select><span id="statsSummary">waiting for samples…</span></span></div>
 		<table class="stats-table" aria-label="time and token percentage breakdown">
@@ -856,6 +864,7 @@ class OutputRatePanel {
 			<div class="field"><label for="maxNoFeedbackReconnectAttempts">${escapeHtml(t('configView.responses.maxReconnectAttemptsLabel'))}</label><input id="maxNoFeedbackReconnectAttempts" type="number" min="1" max="10" step="1"/><div class="hint">${escapeHtml(t('configView.responses.maxReconnectAttemptsHint'))}</div></div>
 			<div class="field"><label for="outputRateTooltipRefreshSeconds">${escapeHtml(t('configView.responses.tooltipRefreshLabel'))}</label><input id="outputRateTooltipRefreshSeconds" type="number" min="1" max="30" step="1"/><div class="hint">${escapeHtml(t('configView.responses.tooltipRefreshHint'))}</div></div>
 			<div class="field"><label for="outputRateChartStyle">${escapeHtml(t('configView.responses.chartStyleLabel'))}</label><select id="outputRateChartStyle"><option value="classic">Classic</option><option value="neon">Neon</option><option value="hybrid" selected>Hybrid</option></select><div class="hint">${escapeHtml(t('configView.responses.chartStyleHint'))}</div></div>
+			<div class="field"><label for="outputRateHistoryMinutes">Chart history minutes</label><div class="history-row"><input id="outputRateHistoryMinutes" type="number" min="1" max="1440" step="1"/><select id="outputRateHistoryPreset" title="Quick history window"><option value="custom">Custom</option><option value="3">3 min</option><option value="10">10 min</option><option value="30">30 min</option><option value="60">1 hour</option><option value="240">4 hours</option><option value="1440">24 hours</option></select></div><div class="hint">How many minutes of Output Rate samples to retain and display.</div></div>
 		</div>
 		<div class="actions"><button id="responsesRuntimeSaveBtn">${escapeHtml(t('configView.responses.save'))}</button></div>
 	</details>
@@ -880,18 +889,48 @@ const noFeedbackReconnectSeconds = document.getElementById('noFeedbackReconnectS
 const maxNoFeedbackReconnectAttempts = document.getElementById('maxNoFeedbackReconnectAttempts');
 const outputRateTooltipRefreshSeconds = document.getElementById('outputRateTooltipRefreshSeconds');
 const outputRateChartStyle = document.getElementById('outputRateChartStyle');
+const outputRateHistoryMinutes = document.getElementById('outputRateHistoryMinutes');
+const outputRateHistoryPreset = document.getElementById('outputRateHistoryPreset');
 const responsesRuntimeSaveBtn = document.getElementById('responsesRuntimeSaveBtn');
 let chartScaleMax = 1;
 let pendingSnapshot = undefined;
 let pendingFrame = 0;
 let chartWindowStart = undefined;
 let chartWindowEnd = undefined;
+let chartRenderOrigin = undefined;
+let chartDom = undefined;
 let lastVisibleSamples = [];
+let lastBreakdownSamples = [];
 
-const CHART_HISTORY_MS = 180000;
 const CHART_MAX_POINTS = 600;
+const CHART_SEGMENT_MAX_POINTS = 240;
 const CHART_SCALE_HEADROOM = 1.15;
 const CHART_SCROLL_STEP_MS = 100;
+const CHART_DOM_CLEANUP_BUFFER_MS = 2000;
+const CHART_REBUILD_SCALE_UP_RATIO = 1.35;
+
+function getChartHistoryMinutes() {
+	const value = parseInt(outputRateHistoryMinutes?.value, 10);
+	return Number.isFinite(value) ? Math.max(1, Math.min(1440, value)) : 3;
+}
+
+function getChartHistoryMs() {
+	return getChartHistoryMinutes() * 60 * 1000;
+}
+
+function syncHistoryPreset() {
+	if (!outputRateHistoryPreset) return;
+	const minutes = String(getChartHistoryMinutes());
+	const hasPreset = Array.from(outputRateHistoryPreset.options || []).some(option => option.value === minutes);
+	outputRateHistoryPreset.value = hasPreset ? minutes : 'custom';
+}
+
+function resetChartWindow() {
+	chartWindowStart = undefined;
+	chartWindowEnd = undefined;
+	chartRenderOrigin = undefined;
+	resetChartDom();
+}
 
 function fmtRate(value) { return Number.isFinite(value) ? value.toFixed(1) + ' tok/s' : '—'; }
 function fmtDuration(ms) { return ms == null ? 'waiting…' : (Math.max(0, ms) / 1000).toFixed(2) + 's'; }
@@ -987,6 +1026,14 @@ function renderBreakdown(samples) {
 	}).join('');
 }
 
+function getBreakdownSamples(samples, updatedAt) {
+	if (!samples || samples.length === 0) return [];
+	const historyMs = getChartHistoryMs();
+	const end = Number.isFinite(updatedAt) ? updatedAt : samples[samples.length - 1]?.at || Date.now();
+	const start = Math.max(0, end - historyMs);
+	return samples.filter(sample => sample && sample.at >= start && sample.at <= end);
+}
+
 function pathFromPoints(points) {
 	if (points.length === 0) return '';
 	if (points.length === 1) return 'M ' + points[0].x + ' ' + points[0].y;
@@ -1033,25 +1080,27 @@ function downsampleSamples(samples, maxPoints, start, end) {
 }
 
 function getChartWindow(samples, anchorAt) {
+	const historyMs = getChartHistoryMs();
 	const last = samples[samples.length - 1];
 	const now = Number.isFinite(anchorAt) ? anchorAt : (last?.at || Date.now());
 	const latestAt = last?.at || now;
-	const oldestAt = samples[0]?.at || Math.max(0, now - CHART_HISTORY_MS);
+	const oldestAt = samples[0]?.at || Math.max(0, now - historyMs);
 	const steppedEnd = Math.max(
 		oldestAt + CHART_SCROLL_STEP_MS,
 		Math.floor(latestAt / CHART_SCROLL_STEP_MS) * CHART_SCROLL_STEP_MS,
 	);
 	if (!Number.isFinite(chartWindowStart) || !Number.isFinite(chartWindowEnd)) {
 		chartWindowStart = Math.max(0, oldestAt);
-		chartWindowEnd = chartWindowStart + CHART_HISTORY_MS;
+		chartWindowEnd = chartWindowStart + historyMs;
 	}
 	if (steppedEnd > chartWindowEnd) {
 		chartWindowEnd = steppedEnd;
-		chartWindowStart = Math.max(0, chartWindowEnd - CHART_HISTORY_MS);
+		chartWindowStart = Math.max(0, chartWindowEnd - historyMs);
 	}
-	if (chartWindowEnd < oldestAt || chartWindowStart > latestAt + CHART_HISTORY_MS) {
+	if (chartWindowEnd < oldestAt || chartWindowStart > latestAt + historyMs || Math.abs((chartWindowEnd - chartWindowStart) - historyMs) > 1000) {
 		chartWindowEnd = steppedEnd;
-		chartWindowStart = Math.max(0, chartWindowEnd - CHART_HISTORY_MS);
+		chartWindowStart = Math.max(0, chartWindowEnd - historyMs);
+		chartRenderOrigin = undefined;
 	}
 	return { start: chartWindowStart, end: chartWindowEnd };
 }
@@ -1077,6 +1126,7 @@ function splitSegments(points) {
 }
 
 function drawStateBands(points, width, height, pad, bandTop, bandHeight) {
+	const layer = getPlotLayer();
 	if (!points.length) return;
 	let start = points[0];
 	for (let index = 1; index <= points.length; index++) {
@@ -1097,9 +1147,15 @@ function drawStateBands(points, width, height, pad, bandTop, bandHeight) {
 		const title = createSvgElement('title', {});
 		title.textContent = stateLabel(start.state) + ' · ' + new Date(start.at).toLocaleTimeString();
 		rect.appendChild(title);
-		svg.appendChild(rect);
+		layer.appendChild(rect);
 		start = point;
 	}
+}
+
+let currentPlotLayer = undefined;
+
+function getPlotLayer() {
+	return currentPlotLayer || svg;
 }
 
 function getStableMaxRate(rawMaxRate) {
@@ -1116,6 +1172,12 @@ function getStableMaxRate(rawMaxRate) {
 	return Math.max(1, chartScaleMax);
 }
 
+function shouldRebuildForScale(currentMaxRate, nextMaxRate) {
+	if (!Number.isFinite(currentMaxRate) || currentMaxRate <= 0) return true;
+	if (!Number.isFinite(nextMaxRate) || nextMaxRate <= 0) return false;
+	return nextMaxRate > currentMaxRate * CHART_REBUILD_SCALE_UP_RATIO;
+}
+
 function currentChartStyle() {
 	const value = outputRateChartStyle?.value || 'hybrid';
 	return value === 'neon' || value === 'hybrid' ? value : 'classic';
@@ -1129,6 +1191,7 @@ function applyChartStyle(style) {
 
 function drawHybridBars(points, plotBottom, pad) {
 	if (points.length < 2) return;
+	const layer = getPlotLayer();
 	const width = Math.max(1, Math.min(10, (points[1].x - points[0].x) * 0.72));
 	for (const point of points) {
 		const top = Math.min(point.y, plotBottom);
@@ -1140,75 +1203,155 @@ function drawHybridBars(points, plotBottom, pad) {
 			rx: 2,
 			class: 'rate-bar state-' + point.state,
 		});
-		svg.appendChild(rect);
+		layer.appendChild(rect);
 	}
 }
 
+function resetChartDom() {
+	chartDom = undefined;
+	currentPlotLayer = undefined;
+	svg.innerHTML = '';
+}
+
+function updateMovingLayerTransform(translateX) {
+	if (chartDom?.movingLayer) {
+		chartDom.movingLayer.setAttribute('transform', 'translate(' + translateX.toFixed(2) + ',0)');
+	}
+}
+
+function makePoint(sample, maxRate, metrics) {
+	const rate = sample.averageRate || sample.rate || 0;
+	return {
+		x: metrics.pad + ((sample.at - metrics.origin) / metrics.historyMs) * metrics.plotWidth,
+		y: metrics.plotBottom - Math.max(0, Math.min(1, rate / maxRate)) * (metrics.plotBottom - metrics.pad),
+		at: sample.at,
+		rate,
+		sessionId: sample.sessionId || 0,
+		state: sampleState(sample),
+		tool: sample.activeToolName || '',
+	};
+}
+
+function createChartDom(metrics, style, maxRate) {
+	resetChartDom();
+	const clipId = 'plotClip-' + Math.floor(Math.random() * 1000000);
+	const defs = createSvgElement('defs', {});
+	const clipPath = createSvgElement('clipPath', { id: clipId });
+	clipPath.appendChild(createSvgElement('rect', { x: metrics.pad, y: 0, width: metrics.plotWidth, height: metrics.height }));
+	defs.appendChild(clipPath);
+	svg.appendChild(defs);
+	for (let i = 0; i <= 4; i++) {
+		const y = metrics.pad + i * (metrics.plotBottom - metrics.pad) / 4;
+		svg.appendChild(createSvgElement('line', { x1: metrics.pad, x2: metrics.width - metrics.pad, y1: y, y2: y, class: 'grid-line' }));
+	}
+	const viewport = createSvgElement('g', { 'clip-path': 'url(#' + clipId + ')' });
+	const movingLayer = createSvgElement('g', { class: 'plot-moving-layer', transform: 'translate(0,0)' });
+	viewport.appendChild(movingLayer);
+	svg.appendChild(viewport);
+	chartDom = { movingLayer, style, historyMs: metrics.historyMs, origin: metrics.origin, maxRate, lastAt: 0, lastKey: '', activePath: undefined, activeGlow: undefined, activeSegment: undefined, activePoints: [], activeD: '', dots: [], elements: [], segments: [], lastCleanupAt: 0 };
+	currentPlotLayer = movingLayer;
+}
+
+function appendManagedElement(element, at) {
+	if (!chartDom) return;
+	chartDom.elements.push({ element, at });
+	chartDom.movingLayer.appendChild(element);
+}
+
+function cleanupChartDom(cutoffAt) {
+	if (!chartDom || !Number.isFinite(cutoffAt) || cutoffAt <= chartDom.lastCleanupAt + 500) return;
+	chartDom.lastCleanupAt = cutoffAt;
+	chartDom.elements = chartDom.elements.filter(entry => {
+		if (entry.at >= cutoffAt) return true;
+		entry.element.remove();
+		return false;
+	});
+	chartDom.segments = chartDom.segments.filter(segment => {
+		if (segment === chartDom.activeSegment || segment.lastAt >= cutoffAt) return true;
+		segment.path?.remove();
+		segment.glow?.remove();
+		return false;
+	});
+}
+
+function appendPoint(point, style, metrics) {
+	if (!chartDom) return;
+	const previous = chartDom.activePoints[chartDom.activePoints.length - 1];
+	const key = point.sessionId + ':' + point.state;
+	const shouldBreak = !previous || chartDom.lastKey !== key || point.at - previous.at > 3500 || chartDom.activePoints.length >= CHART_SEGMENT_MAX_POINTS;
+	if (shouldBreak) {
+		chartDom.activeD = 'M ' + point.x.toFixed(2) + ' ' + point.y.toFixed(2);
+		chartDom.activePath = createSvgElement('path', { class: 'line thin state-' + point.state, d: chartDom.activeD });
+		let glow = undefined;
+		if (style === 'neon') {
+			glow = createSvgElement('path', { class: 'line glow-base state-' + point.state, d: chartDom.activeD });
+			chartDom.activeGlow = glow;
+			chartDom.movingLayer.appendChild(glow);
+		} else {
+			chartDom.activeGlow = undefined;
+		}
+		chartDom.movingLayer.appendChild(chartDom.activePath);
+		chartDom.activeSegment = { path: chartDom.activePath, glow, lastAt: point.at };
+		chartDom.segments.push(chartDom.activeSegment);
+		chartDom.activePoints = [point];
+		chartDom.lastKey = key;
+	} else {
+		chartDom.activePoints.push(point);
+		chartDom.activeD += ' L ' + point.x.toFixed(2) + ' ' + point.y.toFixed(2);
+		chartDom.activePath?.setAttribute('d', chartDom.activeD);
+		chartDom.activeGlow?.setAttribute('d', chartDom.activeD);
+		if (chartDom.activeSegment) chartDom.activeSegment.lastAt = point.at;
+	}
+	if (style === 'hybrid') {
+		const barWidth = Math.max(1, Math.min(10, metrics.plotWidth / CHART_MAX_POINTS * .72));
+		appendManagedElement(createSvgElement('rect', { x: point.x - barWidth / 2, y: Math.min(point.y, metrics.plotBottom), width: barWidth, height: Math.max(1, metrics.plotBottom - Math.min(point.y, metrics.plotBottom)), rx: 2, class: 'rate-bar state-' + point.state }), point.at);
+	}
+	appendManagedElement(createSvgElement('rect', { x: point.x, y: metrics.bandTop, width: 2, height: metrics.bandHeight, rx: 1, class: 'state-band state-' + point.state }), point.at);
+	const dot = createSvgElement('circle', { cx: point.x, cy: point.y, r: 2, class: 'dot state-' + point.state });
+	chartDom.dots.push(dot);
+	appendManagedElement(dot, point.at);
+	while (chartDom.dots.length > 24) {
+		chartDom.dots.shift()?.remove();
+	}
+	chartDom.lastAt = Math.max(chartDom.lastAt, point.at);
+	cleanupChartDom(metrics.cleanupBefore);
+}
+
 function draw(samples, anchorAt) {
-	const width = 920, height = 320, pad = 28, bandTop = 288, bandHeight = 10;
+	const metrics = { width: 920, height: 320, pad: 28, bandTop: 288, bandHeight: 10, historyMs: getChartHistoryMs(), origin: 0, plotWidth: 0, plotBottom: 274, cleanupBefore: 0 };
+	metrics.plotWidth = metrics.width - metrics.pad * 2;
 	const style = currentChartStyle();
 	applyChartStyle(style);
-	svg.innerHTML = '';
-	if (!samples || samples.length === 0) { empty.style.display = 'block'; lastVisibleSamples = []; return []; }
+	if (!samples || samples.length === 0) { resetChartDom(); empty.style.display = 'block'; lastVisibleSamples = []; return []; }
 	empty.style.display = 'none';
 	const windowRange = getChartWindow(samples, anchorAt);
 	const start = windowRange.start;
 	const end = windowRange.end;
-	const visibleSamples = downsampleSamples(samples.filter(s => s && s.at >= start && s.at <= end), CHART_MAX_POINTS, start, end);
+	metrics.cleanupBefore = start - CHART_DOM_CLEANUP_BUFFER_MS;
+	if (!Number.isFinite(chartRenderOrigin) || chartRenderOrigin > start || end - chartRenderOrigin > metrics.historyMs * 2) {
+		chartRenderOrigin = start;
+		resetChartDom();
+	}
+	metrics.origin = chartRenderOrigin;
+	const translateX = -Math.max(0, ((end - chartRenderOrigin) - metrics.historyMs) / metrics.historyMs) * metrics.plotWidth;
+	const renderStart = Math.max(0, chartRenderOrigin - 2000);
+	const renderedSamples = downsampleSamples(samples.filter(s => s && s.at >= renderStart && s.at <= end), CHART_MAX_POINTS, renderStart, end);
+	const visibleSamples = renderedSamples.filter(s => s && s.at >= start && s.at <= end);
 	lastVisibleSamples = visibleSamples;
 	if (visibleSamples.length === 0) { empty.style.display = 'block'; return []; }
 	const rawMaxRate = Math.max(1, ...visibleSamples.map(s => s.averageRate || s.rate || 0));
 	const maxRate = getStableMaxRate(rawMaxRate);
-	const plotBottom = bandTop - 14;
-	const points = visibleSamples.map(s => ({
-		x: pad + Math.max(0, Math.min(1, (s.at - start) / (end - start))) * (width - pad * 2),
-		y: plotBottom - Math.max(0, Math.min(1, ((s.averageRate || s.rate || 0) / maxRate))) * (plotBottom - pad),
-		at: s.at,
-		rate: s.averageRate || s.rate || 0,
-		sessionId: s.sessionId || 0,
-		state: sampleState(s),
-		tool: s.activeToolName || '',
-	}));
-	for (let i = 0; i <= 4; i++) {
-		const y = pad + i * (plotBottom - pad) / 4;
-		svg.appendChild(createSvgElement('line', { x1: pad, x2: width - pad, y1: y, y2: y, class: 'grid-line' }));
-	}
-	if (style === 'hybrid') {
-		drawHybridBars(points, plotBottom, pad);
-	}
-	drawStateBands(points, width, height, pad, bandTop, bandHeight);
-	const segments = splitSegments(points);
-	for (const segment of segments) {
-		if (segment.length === 1) {
-			const point = segment[0];
-			const dot = createSvgElement('circle', { cx: point.x, cy: point.y, r: 2.5, class: 'dot state-' + point.state });
-			svg.appendChild(dot);
-			continue;
+	const mustRebuild = !chartDom || chartDom.style !== style || chartDom.historyMs !== metrics.historyMs || chartDom.origin !== metrics.origin || shouldRebuildForScale(chartDom.maxRate, maxRate);
+	if (mustRebuild) {
+		createChartDom(metrics, style, maxRate);
+		for (const sample of renderedSamples) appendPoint(makePoint(sample, maxRate, metrics), style, metrics);
+	} else {
+		for (const sample of renderedSamples) {
+			if (sample.at > chartDom.lastAt) appendPoint(makePoint(sample, maxRate, metrics), style, metrics);
 		}
-		const d = pathFromPoints(segment);
-		if (style === 'neon') {
-			const glow = createSvgElement('path', { d, class: 'line glow-base state-' + segment[0].state });
-			svg.appendChild(glow);
-		}
-		const area = createSvgElement('path', {
-			d: d + ' L ' + segment[segment.length - 1].x + ' ' + plotBottom + ' L ' + segment[0].x + ' ' + plotBottom + ' Z',
-			class: 'area',
-		});
-		if (segment[0].state === 'idle' || segment[0].state === 'wait') area.style.opacity = '.05';
-		svg.appendChild(area);
-		const path = createSvgElement('path', { d, class: 'line thin state-' + segment[0].state });
-		const title = createSvgElement('title', {});
-		title.textContent = stateLabel(segment[0].state) + (segment[0].tool ? ' · ' + segment[0].tool : '') + ' · ' + segment.length + ' samples';
-		path.appendChild(title);
-		svg.appendChild(path);
 	}
-	for (const p of points.slice(-24)) {
-		const dot = createSvgElement('circle', { cx: p.x, cy: p.y, r: 2, class: 'dot state-' + p.state });
-		const title = createSvgElement('title', {});
-		title.textContent = stateLabel(p.state) + ' · ' + p.rate.toFixed(2) + ' tok/s' + (p.tool ? ' · ' + p.tool : '');
-		dot.appendChild(title);
-		svg.appendChild(dot);
-	}
+	updateMovingLayerTransform(translateX);
+	currentPlotLayer = undefined;
 	return visibleSamples;
 }
 
@@ -1226,8 +1369,9 @@ function renderSnapshot(snapshot) {
 		: snapshot.active ? snapshot.streamKind : 'final';
 	active.textContent = stateText;
 	const visibleSamples = draw(snapshot.samples, snapshot.updatedAt);
-	meta.textContent = 'Session view · ' + visibleSamples.length + ' visible · ' + snapshot.samples.length + ' retained · split by session/state · ' + currentChartStyle() + ' · updated ' + new Date(snapshot.updatedAt).toLocaleTimeString();
-	renderBreakdown(visibleSamples);
+	meta.textContent = 'Recent ' + getChartHistoryMinutes() + ' min · translated layer · ' + visibleSamples.length + ' visible · ' + snapshot.samples.length + ' retained · split by session/state · ' + currentChartStyle() + ' · updated ' + new Date(snapshot.updatedAt).toLocaleTimeString();
+	lastBreakdownSamples = getBreakdownSamples(snapshot.samples, snapshot.updatedAt);
+	renderBreakdown(lastBreakdownSamples);
 }
 
 function scheduleRender(snapshot) {
@@ -1249,6 +1393,9 @@ window.addEventListener('message', event => {
 		maxNoFeedbackReconnectAttempts.value = settings.maxNoFeedbackReconnectAttempts || 3;
 		outputRateTooltipRefreshSeconds.value = settings.outputRateTooltipRefreshSeconds || 2;
 		outputRateChartStyle.value = settings.outputRateChartStyle || 'hybrid';
+		outputRateHistoryMinutes.value = settings.outputRateHistoryMinutes || 3;
+		syncHistoryPreset();
+		resetChartWindow();
 		applyChartStyle(currentChartStyle());
 		return;
 	}
@@ -1265,16 +1412,33 @@ responsesRuntimeSaveBtn.addEventListener('click', () => {
 			maxNoFeedbackReconnectAttempts: parseInt(maxNoFeedbackReconnectAttempts.value, 10) || 3,
 			outputRateTooltipRefreshSeconds: parseInt(outputRateTooltipRefreshSeconds.value, 10) || 2,
 			outputRateChartStyle: currentChartStyle(),
+			outputRateHistoryMinutes: parseInt(outputRateHistoryMinutes.value, 10) || 3,
 		},
 	});
 });
 
 statsSort?.addEventListener('change', () => {
-	renderBreakdown(lastVisibleSamples || []);
+	renderBreakdown(lastBreakdownSamples || []);
 });
 
 outputRateChartStyle?.addEventListener('change', () => {
 	applyChartStyle(currentChartStyle());
+	resetChartWindow();
+	renderSnapshot(pendingSnapshot);
+});
+
+outputRateHistoryMinutes?.addEventListener('change', () => {
+	syncHistoryPreset();
+	resetChartWindow();
+	renderSnapshot(pendingSnapshot);
+});
+
+outputRateHistoryPreset?.addEventListener('change', () => {
+	const value = outputRateHistoryPreset.value;
+	if (value !== 'custom') {
+		outputRateHistoryMinutes.value = value;
+	}
+	resetChartWindow();
 	renderSnapshot(pendingSnapshot);
 });
 </script>
@@ -1291,6 +1455,7 @@ function getResponsesRuntimeSettings(): ResponsesRuntimeSettings {
 		maxNoFeedbackReconnectAttempts: getResponsesMaxNoFeedbackReconnectAttempts(),
 		outputRateTooltipRefreshSeconds: getOutputRateTooltipRefreshSeconds(),
 		outputRateChartStyle: getOutputRateChartStyle(),
+		outputRateHistoryMinutes: getOutputRateHistoryMinutes(),
 	};
 }
 
@@ -1336,7 +1501,7 @@ function sampleOutputRate(now: number, estimatedTokens: number, active: boolean,
 }
 
 function pruneOutputRateSamples(now: number): void {
-	const cutoff = now - OUTPUT_RATE_HISTORY_MS;
+	const cutoff = now - getOutputRateHistoryMinutes() * 60 * 1000;
 	while (outputRateSamples.length > 0 && outputRateSamples[0].at < cutoff) {
 		outputRateSamples.shift();
 	}
@@ -1374,7 +1539,7 @@ function getStableOutputRateTooltip(): string {
 			`Output: ${formatTokenCount(Math.round(snapshot.outputTokens))} tokens · ${snapshot.outputChars} chars`,
 			`Waiting threshold: ${snapshot.waitingThresholdSeconds}s`,
 			...toolLines,
-			`Last 3 min: ${createSparkline(snapshot.samples.map(sample => sample.rate), 42)}`,
+			`Last ${getOutputRateHistoryMinutes()} min: ${createSparkline(snapshot.samples.map(sample => sample.rate), 42)}`,
 			'Click to open chart and Responses runtime settings.',
 		].join('\n');
 	}

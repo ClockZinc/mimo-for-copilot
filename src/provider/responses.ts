@@ -1387,13 +1387,20 @@ function withNoFeedbackTimeout<T>(
 		return promise;
 	}
 	let timeout: NodeJS.Timeout | undefined;
+	let timedOut = false;
 	const timeoutPromise = new Promise<never>((_resolve, reject) => {
 		timeout = setTimeout(() => {
+			timedOut = true;
 			controller.abort();
 			reject(new ResponsesNoFeedbackTimeoutError(timeoutMs));
 		}, timeoutMs);
 	});
-	return Promise.race([promise, timeoutPromise]).finally(() => {
+	return Promise.race([promise.catch((error) => {
+		if (timedOut && error instanceof Error && error.name === 'AbortError') {
+			throw new ResponsesNoFeedbackTimeoutError(timeoutMs);
+		}
+		throw error;
+	}), timeoutPromise]).finally(() => {
 		if (timeout) {
 			clearTimeout(timeout);
 		}
@@ -1631,7 +1638,7 @@ class ResponsesClient {
 					maxAttempts: maxNoFeedbackAttempts,
 					message: 'no feedback',
 				});
-				callbacks.onError(new Error('Responses stream connection error: no feedback for 30s'));
+				callbacks.onError(new Error(`Responses stream connection error: no feedback for ${Math.round(noFeedbackReconnectMs / 1000)}s`));
 				return;
 			}
 

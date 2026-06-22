@@ -509,6 +509,13 @@
           ],
           "description": "%mimo-copilot.config.outputRate.chartStyle.description%"
         },
+        "mimo-copilot.outputRate.historyMinutes": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 1440,
+          "description": "%mimo-copilot.config.outputRate.historyMinutes.description%"
+        },
         "mimo-copilot.modelIdOverrides": {
           "type": "object",
           "default": {
@@ -570,7 +577,7 @@
     "lint": "oxlint",
     "format": "oxfmt --write src/",
     "format:check": "oxfmt --check src/",
-    "package": "vsce package -o dist/",
+    "package": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true }); require('node:fs').mkdirSync('dist', { recursive: true })\" && vsce package -o dist/mimo-for-copilot-1.2.1.vsix",
     "publish": "vsce publish",
     "login": "vsce login Vizards"
   },

@@ -202,6 +202,11 @@ export function getOutputRateChartStyle(): 'classic' | 'neon' | 'hybrid' {
 	return value === 'neon' || value === 'hybrid' ? value : 'classic';
 }
 
+export function getOutputRateHistoryMinutes(): number {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	return getNumberSetting(config, 'outputRate.historyMinutes', 3, 1, 1440);
+}
+
 // ---- Multi-provider management ----
 
 /**

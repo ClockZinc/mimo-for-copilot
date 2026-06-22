@@ -57,6 +57,7 @@
   "mimo-copilot.config.responses.maxNoFeedbackReconnectAttempts.description": "Maximum number of no-feedback reconnect failures before showing connect Error.",
   "mimo-copilot.config.responses.outputRateTooltipRefreshSeconds.description": "Seconds between Output Rate status bar tooltip refreshes. The status bar text can update faster while the tooltip refreshes slower to avoid flicker.",
   "mimo-copilot.config.outputRate.chartStyle.description": "Visual style for the Output Rate chart. Classic keeps the current segmented line, Neon adds glow, and Hybrid adds subtle rate bars behind the line.",
+  "mimo-copilot.config.outputRate.historyMinutes.description": "Minutes of Output Rate samples to retain and display in the chart.",
   "mimo-copilot.config.visionModel.description": "Model ID for vision proxy. Leave empty for auto-detection.",
   "mimo-copilot.config.visionPrompt.description": "Prompt sent to the vision proxy model when describing image attachments."
 }
