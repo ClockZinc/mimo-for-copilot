@@ -3,7 +3,7 @@
   "displayName": "MiMo for Copilot Chat",
   "description": "Use GPT relay/proxy providers, MiMo, DeepSeek, and OpenAI-compatible models in Copilot Chat. Vision, thinking mode, agent tools, multi-provider BYOK.",
   "icon": "resources/mimo.png",
-  "version": "1.2.6",
+  "version": "1.3.0",
   "publisher": "clockzincbit",
   "license": "MIT",
   "repository": {
@@ -582,7 +582,7 @@
     "lint": "oxlint",
     "format": "oxfmt --write src/",
     "format:check": "oxfmt --check src/",
-    "package": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true }); require('node:fs').mkdirSync('dist', { recursive: true })\" && vsce package -o dist/mimo-for-copilot-1.2.6.vsix",
+    "package": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true }); require('node:fs').mkdirSync('dist', { recursive: true })\" && vsce package -o dist/mimo-for-copilot-1.3.0.vsix",
     "publish": "vsce publish",
     "login": "vsce login Vizards"
   },
