@@ -2,9 +2,33 @@ import vscode from 'vscode';
 import { API_KEY_SECRET, CONFIG_SECTION } from './consts';
 import { t } from './i18n';
 
+/** Environment variable holding the global API key. */
+const API_KEY_ENV = 'MIMO_COPILOT_API_KEY';
+
 /**
- * Manages API keys via VS Code SecretStorage (secure) with
- * fallback to extension settings (less secure, for CI/automation).
+ * Environment variable holding a provider's API key, e.g. `mimo-tp` reads
+ * `MIMO_COPILOT_API_KEY_MIMO_TP`.
+ */
+function envVarForProvider(providerId: string): string {
+	return `${API_KEY_ENV}_${providerId.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`;
+}
+
+/** Read an API key from the environment, treating blank as absent. */
+function envApiKey(providerId?: string): string | undefined {
+	const value = process.env[providerId ? envVarForProvider(providerId) : API_KEY_ENV];
+	return value?.trim() || undefined;
+}
+
+/**
+ * Manages API keys via VS Code SecretStorage (secure) with fallback to
+ * extension settings, then to the environment (both for CI/automation).
+ *
+ * The environment is checked last, so it never overrides a key the user has
+ * already stored. It exists for hosts where SecretStorage cannot be seeded
+ * ahead of time -- a remote or container workspace is rebuilt before anyone
+ * can open it, so entering a key by hand is the one step that cannot be
+ * automated away. Settings would work there too, but only by committing the
+ * key to a repository.
  */
 export class AuthManager {
 	private readonly secretStorage: vscode.SecretStorage;
@@ -14,7 +38,8 @@ export class AuthManager {
 	}
 
 	/**
-	 * Get API key. Tries SecretStorage first, then falls back to settings.
+	 * Get API key. Tries SecretStorage first, then settings, then the
+	 * environment.
 	 */
 	async getApiKey(): Promise<string | undefined> {
 		const secretKey = await this.secretStorage.get(API_KEY_SECRET);
@@ -28,7 +53,7 @@ export class AuthManager {
 			return settingsKey.trim();
 		}
 
-		return undefined;
+		return envApiKey();
 	}
 
 	/**
@@ -44,6 +69,12 @@ export class AuthManager {
 			if (providerKey) {
 				return providerKey;
 			}
+			// Named after the provider, so this cannot leak one provider's key to
+			// another the way a global fallback would.
+			const providerEnvKey = envApiKey(providerId);
+			if (providerEnvKey) {
+				return providerEnvKey;
+			}
 		}
 		// Only fall back to the global key for deepseek / default.
 		if (!providerId || providerId === 'default' || providerId === 'deepseek') {
@@ -58,7 +89,7 @@ export class AuthManager {
 	 * we should cascade to mimo-tp instead of falling back to a wrong global key.
 	 */
 	async getProviderSpecificKey(providerId: string): Promise<string | undefined> {
-		return this.secretStorage.get(`${CONFIG_SECTION}.apiKey.${providerId}`);
+		return (await this.secretStorage.get(`${CONFIG_SECTION}.apiKey.${providerId}`)) ?? envApiKey(providerId);
 	}
 
 	/**
@@ -94,7 +125,7 @@ export class AuthManager {
 		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 		const providers = config.get<Array<{ id: string }>>('providers') ?? [];
 		for (const p of providers) {
-			const key = await this.secretStorage.get(`${CONFIG_SECTION}.apiKey.${p.id}`);
+			const key = (await this.secretStorage.get(`${CONFIG_SECTION}.apiKey.${p.id}`)) ?? envApiKey(p.id);
 			if (key) {
 				return true;
 			}
@@ -103,7 +134,7 @@ export class AuthManager {
 	}
 
 	async hasProviderSpecificKey(providerId: string): Promise<boolean> {
-		const key = await this.secretStorage.get(`${CONFIG_SECTION}.apiKey.${providerId}`);
+		const key = (await this.secretStorage.get(`${CONFIG_SECTION}.apiKey.${providerId}`)) ?? envApiKey(providerId);
 		return !!key?.trim();
 	}
 

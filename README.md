@@ -222,6 +222,26 @@ Key settings include:
 - `mimo-copilot.memory.recallModel`
 - `mimo-copilot.modelIdOverrides`
 
+## 🤖 API keys from the environment
+
+Remote and container workspaces are rebuilt before anyone opens them, so their
+`SecretStorage` cannot be seeded ahead of time and **`MiMo: Set API Key`** has to
+be repeated on every new workspace. For those hosts the key can come from the
+environment instead:
+
+| Variable | Used for |
+| --- | --- |
+| `MIMO_COPILOT_API_KEY` | the global key |
+| `MIMO_COPILOT_API_KEY_<PROVIDER>` | one provider, e.g. `MIMO_COPILOT_API_KEY_MIMO_TP` for `mimo-tp` |
+
+The provider id from `mimo-copilot.providers` is uppercased, with every run of
+non-alphanumeric characters replaced by `_`.
+
+The environment is read **last** — after `SecretStorage` and after settings — so
+it never overrides a key you stored, and nothing changes if you set no variable.
+Prefer it over the settings fallback when your configuration lives in a
+repository: the variable stays outside it, the setting would not.
+
 ## 📝 Notes
 
 - Copilot Chat features remain available.
